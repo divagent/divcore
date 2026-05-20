@@ -1,7 +1,10 @@
 import os
 from tavily import AsyncTavilyClient
 from app.service.ser_ai_rag import rag_query
-tavily_client = AsyncTavilyClient(api_key=os.getenv("TAVILY_API_KEY"))
+from app.config import get_settings_singleton
+settings = get_settings_singleton()
+
+tavily_client = AsyncTavilyClient(api_key=settings.TAVILY_API_KEY)
 
 
 async def get_dividend_data_tool(tool_input: str):

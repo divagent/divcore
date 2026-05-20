@@ -5,7 +5,8 @@ from .lc_tools import tool_math, tool_tavily
 
 class LCContainer:
     def __init__(self):
-        model_provider = ModelProvider("gpt-5-nano")
+        # Original OpenAI model name kept for reference: ModelProvider("gpt-5-nano")
+        model_provider = ModelProvider()
         factory = AgentFactory(model_provider.get())
 
         self.basic_agent = BasicAgent(factory)

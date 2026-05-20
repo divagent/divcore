@@ -1,13 +1,19 @@
-import json, os
-from openai import AsyncOpenAI
+import json
+
+from google.genai import types
+
+from app.llm.gemini import DEFAULT_GEMINI_MODEL, get_gemini_client
 
 
-# Production Config from your snippet
-deployment = "gpt-5-nano"
-client = AsyncOpenAI(
-    api_key=os.environ["AZURE_OPENAI_API_KEY"],
-    base_url="https://haystacked.openai.azure.com/openai/v1/",
-)
+# Original Azure/OpenAI setup kept for reference:
+# import os
+# from openai import AsyncOpenAI
+# deployment = "gpt-5-nano"
+# client = AsyncOpenAI(
+#     api_key=os.environ["AZURE_OPENAI_API_KEY"],
+#     base_url="https://haystacked.openai.azure.com/openai/v1/",
+# )
+deployment = DEFAULT_GEMINI_MODEL
 
 AGENT_SYSTEM_PROMPT = """
 You are a Financial Data Agent. You have access to a tool called 'get_dividend_data'.
@@ -31,16 +37,28 @@ If you can answer without a tool (e.g., greetings), respond:
 """
 
 async def run_agent_loop(question: str):
+    client = get_gemini_client()
+
     # The LLM "Reasoning" call
-    resp = await client.chat.completions.create(
+    # Original Azure/OpenAI call kept for reference:
+    # resp = await client.chat.completions.create(
+    #     model=deployment,
+    #     messages=[
+    #         {"role": "system", "content": AGENT_SYSTEM_PROMPT},
+    #         {"role": "user", "content": question},
+    #     ],
+    #     response_format={"type": "json_object"},
+    # )
+    resp = await client.aio.models.generate_content(
         model=deployment,
-        messages=[
-            {"role": "system", "content": AGENT_SYSTEM_PROMPT},
-            {"role": "user", "content": question},
-        ],
-        response_format={"type": "json_object"} # Ensures valid JSON for the parser
+        contents=question,
+        config=types.GenerateContentConfig(
+            system_instruction=AGENT_SYSTEM_PROMPT,
+            response_mime_type="application/json",
+            temperature=0,
+        ),
     )
     
     # Parse the brain's decision
-    decision = json.loads(resp.choices[0].message.content)
+    decision = json.loads(resp.text)
     return decision

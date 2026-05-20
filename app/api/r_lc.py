@@ -1,22 +1,25 @@
 # main.py
-import os
 from fastapi import APIRouter
 from pydantic import BaseModel
 
-from langchain_openai import ChatOpenAI
 from langchain_core.messages import HumanMessage, SystemMessage
 
 from app.agent.ag1.ag_core import run_agent
 from app.lc.lc_agent_service import lc_run_agent
+from app.llm.gemini_langchain import GeminiChatModel
 
 lcRou = APIRouter()
 
-# ---- LLM (Azure OpenAI via LangChain) ----
-llm = ChatOpenAI(
-    model="gpt-5-nano",  # Azure DEPLOYMENT NAME
-    base_url="https://haystacked.cognitiveservices.azure.com/openai/v1/",
-    api_key=os.environ["AZURE_OPENAI_API_KEY"],
-)
+# ---- LLM (Gemini via local LangChain adapter) ----
+# Original Azure/OpenAI model kept for reference:
+# import os
+# from langchain_openai import ChatOpenAI
+# llm = ChatOpenAI(
+#     model="gpt-5-nano",  # Azure DEPLOYMENT NAME
+#     base_url="https://haystacked.cognitiveservices.azure.com/openai/v1/",
+#     api_key=os.environ["AZURE_OPENAI_API_KEY"],
+# )
+llm = GeminiChatModel()
 
 # ---- Request schema ----
 class ChatRequest(BaseModel):

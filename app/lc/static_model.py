@@ -5,13 +5,16 @@ from langchain.tools import tool
 from langchain.agents.middleware import wrap_tool_call
 from langchain.messages import ToolMessage
 
-from langchain_openai import ChatOpenAI
+from app.llm.gemini_langchain import GeminiChatModel
 
-model = ChatOpenAI(
-    model="gpt-5-nano",
-    max_tokens=1000,
-    timeout=30
-)
+# Original OpenAI model kept for reference:
+# from langchain_openai import ChatOpenAI
+# model = ChatOpenAI(
+#     model="gpt-5-nano",
+#     max_tokens=1000,
+#     timeout=30
+# )
+model = GeminiChatModel()
 
 
 @tool
@@ -47,6 +50,8 @@ agent = create_agent(
     system_prompt="You are a helpful assistant. Be concise and accurate."
 )
 
-result = agent.invoke(
-    {"messages": [{"role": "user", "content": "What's the weather in San Francisco?"}]}
-)
+if __name__ == "__main__":
+    result = agent.invoke(
+        {"messages": [{"role": "user", "content": "What's the weather in San Francisco?"}]}
+    )
+    print(result)

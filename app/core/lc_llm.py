@@ -1,13 +1,17 @@
-import os
-from langchain_openai import ChatOpenAI
 from langchain_core.messages import HumanMessage, SystemMessage
 
+from app.llm.gemini_langchain import GeminiChatModel
 
-llm = ChatOpenAI(
-    model="gpt-5-nano",  # Your Azure deployment name
-    base_url="https://haystacked.openai.azure.com/openai/v1/",
-    api_key=os.environ["AZURE_OPENAI_API_KEY"]
-)
+
+# Original Azure/OpenAI model kept for reference:
+# import os
+# from langchain_openai import ChatOpenAI
+# llm = ChatOpenAI(
+#     model="gpt-5-nano",  # Your Azure deployment name
+#     base_url="https://haystacked.openai.azure.com/openai/v1/",
+#     api_key=os.environ["AZURE_OPENAI_API_KEY"]
+# )
+llm = GeminiChatModel()
 
 # response = llm.invoke("Hello, how are you?")
 # print(response.content)

@@ -16,10 +16,11 @@ class _Settings(BaseSettings):
 
     
     
-    OPENAI_API_KEY: Optional[str] = None
     GEMINI_API_KEY: Optional[str] = None
     GEMINI_API_KEY_OPHIR: Optional[str] = None
-    AZURE_OPENAI_API_KEY: Optional[str] = None
+    # Original OpenAI/Azure settings kept for reference:
+    # OPENAI_API_KEY: Optional[str] = None
+    # AZURE_OPENAI_API_KEY: Optional[str] = None
 
     
     SERPERDEV_API_KEY: Optional[str] = None

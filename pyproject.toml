@@ -11,9 +11,10 @@ dependencies = [
     "fastapi[standard]>=0.128.0",
     "google-genai>=1.62.0",
     "langchain>=1.2.8",
-    "langchain-azure-ai>=1.0.0",
-    "langchain-openai>=1.1.7",
-    "openai>=2.16.0",
+    # Original OpenAI/Azure dependencies kept for reference:
+    # "langchain-azure-ai>=1.0.0",
+    # "langchain-openai>=1.1.7",
+    # "openai>=2.16.0",
     "pandas>=3.0.0",
     "pgvector>=0.4.2",
     "psycopg2-binary>=2.9.11",

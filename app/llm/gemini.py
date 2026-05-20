@@ -1,9 +1,12 @@
+import os
+from functools import lru_cache
+
 from google import genai
 
-# The client gets the API key from the environment variable `GEMINI_API_KEY`.
-client = genai.Client()
 
-response = client.models.generate_content(
-    model="gemini-3-flash-preview", contents="Explain how AI works in a few words"
-)
-print(response.text)
+DEFAULT_GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+
+
+@lru_cache(maxsize=1)
+def get_gemini_client() -> genai.Client:
+    return genai.Client(api_key=os.environ["GEMINI_API_KEY"])

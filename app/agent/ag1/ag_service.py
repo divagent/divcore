@@ -78,7 +78,7 @@ async def ag_action(question: str, top_k: int):
 
     log_event(
         "llm_completed",
-        model="gpt-5-nano",
+        model="gemini",
         latency_ms=llm_ms,
     )
 

@@ -1,20 +1,22 @@
-import os
-
 from langchain.agents import create_agent
 from langchain.tools import tool
 from langchain.agents.middleware import wrap_tool_call
 from langchain.messages import ToolMessage
-from langchain_openai import ChatOpenAI
-from langchain_core.messages import HumanMessage, SystemMessage
+
+from app.llm.gemini_langchain import GeminiChatModel
 
 
-model = ChatOpenAI(
-    model="gpt-5-nano",  # Your Azure deployment name
-    base_url="https://haystacked.openai.azure.com/openai/v1/",
-    api_key=os.environ["AZURE_OPENAI_API_KEY"],
-    max_completion_tokens=1000,
-    timeout=30,
-)
+# Original Azure/OpenAI model kept for reference:
+# import os
+# from langchain_openai import ChatOpenAI
+# model = ChatOpenAI(
+#     model="gpt-5-nano",  # Your Azure deployment name
+#     base_url="https://haystacked.openai.azure.com/openai/v1/",
+#     api_key=os.environ["AZURE_OPENAI_API_KEY"],
+#     max_completion_tokens=1000,
+#     timeout=30,
+# )
+model = GeminiChatModel()
 
 
 # # ---- Model ----
