@@ -1,11 +1,15 @@
 import os
 from openai import AzureOpenAI, AsyncOpenAI
+from app.config import get_settings_singleton
+
+settings = get_settings_singleton()
+subscription_key=settings.OPENAI_API_KEY,
+
 
 endpoint = "https://haystacked.cognitiveservices.azure.com/"
 model_name = "gpt-5-nano"
 deployment = "gpt-5-nano"
 
-subscription_key = os.environ["AZURE_OPENAI_API_KEY"],
 api_version = "2024-12-01-preview"
 
 # client = AzureOpenAI(
@@ -15,7 +19,7 @@ api_version = "2024-12-01-preview"
 # )
 
 client = AsyncOpenAI(
-    api_key=os.environ["AZURE_OPENAI_API_KEY"],
+    api_key=settings.OPENAI_API_KEY,
     base_url="https://haystacked.openai.azure.com/openai/v1/",
 )
 

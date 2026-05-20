@@ -6,7 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 from app.config import get_settings_singleton
 settings = get_settings_singleton()
 
-async_engine = create_async_engine(settings.DIV_ASYNC,  pool_pre_ping=True,echo=False,)
+async_engine = create_async_engine(settings.DIV_ADMIN,  pool_pre_ping=True,echo=False,)
 AsyncSessionFactory = async_sessionmaker(async_engine, expire_on_commit=False,)
 
 # 原有的get_db（裸session，需要手动管理事务）

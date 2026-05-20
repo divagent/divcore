@@ -5,10 +5,10 @@ from openai import AsyncOpenAI
 from app.config import get_settings_singleton
 
 settings = get_settings_singleton()
-api_key=os.getenv("AZURE_OPENAI_API_KEY"),
+api_key=settings.OPENAI_API_KEY,
 
 client = AsyncOpenAI(
-    api_key=os.getenv("AZURE_OPENAI_API_KEY"),
+    api_key=settings.OPENAI_API_KEY,
     base_url="https://haystacked.openai.azure.com/openai/v1/",
 )
 

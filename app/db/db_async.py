@@ -6,7 +6,7 @@ from app.config import get_settings_singleton
 settings = get_settings_singleton()
 
 async_engine = create_async_engine(
-    settings.DIV_ASYNC,
+    settings.DIV_ADMIN,
     pool_pre_ping=True,
     echo=False,  # True only in local dev
 )

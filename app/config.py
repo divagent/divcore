@@ -17,6 +17,11 @@ class _Settings(BaseSettings):
     
     
     OPENAI_API_KEY: Optional[str] = None
+    GEMINI_API_KEY: Optional[str] = None
+    GEMINI_API_KEY_OPHIR: Optional[str] = None
+    AZURE_OPENAI_API_KEY: Optional[str] = None
+
+    
     SERPERDEV_API_KEY: Optional[str] = None
     TAVILY_API_KEY: str = "ff"
     ALPHAVANTAGE_API_KEY:  str = "ff"
