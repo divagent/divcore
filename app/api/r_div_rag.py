@@ -1,9 +1,11 @@
 from fastapi import APIRouter
 from app.service.ser_ai_rag import rag_query_contract, rag_query
-from fastapi import APIRouter, Depends, HTTPException, Path, UploadFile, File, Query
+from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncConnection
 from app.service.ser_div_chunk import DividendChunkService
 from app.service.ser_div_embedding import EmbeddingService
+from app.db.conn.db_async import get_db
+
 
 ragRou = APIRouter(prefix="/rag", tags=["RAG"])
 
