@@ -4,7 +4,7 @@ import secrets
 from fastapi import APIRouter, Depends, UploadFile, File, Query
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from sqlalchemy.ext.asyncio import AsyncSession
-from app.db.db_async import get_db
+from app.db.conn.db_async import get_db
 from app.service.ser_div_az_search import search_dividends
 from app.service.ser_div_show import DivService
 from app.service.ser_az_data_lake import list_files, write_json

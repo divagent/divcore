@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, Path, UploadFile, File, Q
 from fastapi import BackgroundTasks
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.db_async import get_db
+from app.db.conn.db_async import get_db
 from app.pipelines.pip_div_inject import DivPipeline
 
 

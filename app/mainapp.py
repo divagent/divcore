@@ -8,7 +8,7 @@ from starlette import status
 
 from app.config import get_settings_singleton
 from app.core.rag_middleware import request_context_middleware
-from app.db.db_async import async_engine
+from app.db.conn.db_async import async_engine
 from app.api import rou
 
 # setup_logger()
