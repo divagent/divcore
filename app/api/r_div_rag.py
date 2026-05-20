@@ -1,5 +1,9 @@
 from fastapi import APIRouter
 from app.service.ser_ai_rag import rag_query_contract, rag_query
+from fastapi import APIRouter, Depends, HTTPException, Path, UploadFile, File, Query
+from sqlalchemy.ext.asyncio import AsyncConnection
+from app.service.ser_div_chunk import DividendChunkService
+from app.service.ser_div_embedding import EmbeddingService
 
 ragRou = APIRouter(prefix="/rag", tags=["RAG"])
 
@@ -12,14 +16,14 @@ async def query_rag(payload: dict):
 
 @ragRou.post("/rebuild-chunks", summary="Rebuild dividend_chunks from dividends",)
 async def rebuild_dividend_chunks(
-    db: AsyncSession = Depends(get_db),
+    db: AsyncConnection = Depends(get_db),
 ):
     service = DividendChunkService(db)
     return await service.rebuild_chunks()
 
 
 @ragRou.post("/embed-all")
-async def embed_all_div(db: AsyncSession = Depends(get_db),):
+async def embed_all_div(db: AsyncConnection = Depends(get_db),):
     count = await EmbeddingService.embed_all_dummy(db)
     return {"embedded": count}
 
