@@ -41,6 +41,8 @@ class _Settings(BaseSettings):
     SEED_DATA: bool = True  # Whether to seed data on startup
     SEED_TYPE: str = "full"  # 'full', 'test', or 'none'
     SEED_SAMPLE_SIZE: int = 10  # Number of sample records to create
+    
+    ADMIN_PASSWORD: str = "admin123"  # Default admin password for seeding (change in production)
 
     # Application
     PROJECT_NAME: str = "Dividend - FA Cloud"

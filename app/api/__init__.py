@@ -19,4 +19,4 @@ rou.include_router(lcRou, prefix="/langchain", tags=["LangChain"])
 
 @rou.get("/")
 def rouGet():
-    return RedirectResponse(url="https://ainvoaice.com")
+    return RedirectResponse(url="http://localhost:5173")

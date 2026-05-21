@@ -1,9 +1,10 @@
 # app/api/routes/reports.py
-import os
-import secrets
 from fastapi import APIRouter, Depends, UploadFile, File, Query
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
-from sqlalchemy.ext.asyncio import AsyncSession
+
+from sqlalchemy.ext.asyncio import AsyncConnection
+
+
 from app.db.conn.db_async import get_db
 from app.service.ser_div_az_search import search_dividends
 from app.service.ser_div_show import DivService
@@ -13,12 +14,12 @@ divRou = APIRouter()
 
 
 @divRou.get("/list")
-async def list_divs(db: AsyncSession = Depends(get_db),):
+async def list_divs(db: AsyncConnection = Depends(get_db),):
     return await DivService.list_divs(db)
 
 
 @divRou.get("/emb")
-async def list_divs_emb(db: AsyncSession = Depends(get_db),):
+async def list_divs_emb(db: AsyncConnection = Depends(get_db),):
     return await DivService.list_divs_emb(db)
 
 

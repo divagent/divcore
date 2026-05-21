@@ -1,7 +1,7 @@
 # app/services/report_service.py
 from datetime import datetime
 
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncConnection
 from sqlalchemy import select, func, update
 
 from app.db.models.m_div import Div
@@ -11,21 +11,19 @@ from app.db.repo.repo_div_show import DivRepository
 class DivService:
 
     @staticmethod
-    async def list_divs(
-        db: AsyncSession,
-    ):
+    async def list_divs(db: AsyncConnection,):
         return await DivRepository.list_divs(db)
 
 
     @staticmethod
     async def list_divs_emb(
-        db: AsyncSession,
+        db: AsyncConnection,
     ):
         return await DivRepository.list_divs_emb(db)
 
     # @staticmethod
     # async def reports_pagination(
-    #     db: AsyncSession,
+    #     db: AsyncConnection,
     #     page: int,
     #     page_size: int,
     #     query: str | None = None,
@@ -57,7 +55,7 @@ class DivService:
 
     # @staticmethod
     # async def list_filtered_reports(
-    #     db: AsyncSession,
+    #     db: AsyncConnection,
     #     page: int,
     #     page_size: int,
     #     sort_by: str | None,

@@ -13,10 +13,10 @@ from app.api import rou
 
 # setup_logger()
 security = HTTPBasic()
-
+settings = get_settings_singleton()
 
 def verify_auth(credentials: HTTPBasicCredentials = Depends(security)):
-    if credentials.password != os.environ["ADMIN_PASSWORD"]:
+    if credentials.password != settings.ADMIN_PASSWORD:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             headers={"WWW-Authenticate": "Basic"},
