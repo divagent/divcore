@@ -302,6 +302,20 @@ Recommended provider roles:
 - `history_secondary`: EODHD, Polygon/Massive, or Intrinio for backfill and reconciliation.
 - `filing_validation`: SEC/EDGAR or issuer press releases for investigation, not as the daily structured feed.
 
+Free-layer reality check:
+
+- `start_now_free`: Alpha Vantage, EODHD, Polygon, FMP, SEC EDGAR, Finnhub, and the current Nasdaq public calendar approach.
+- `trial_or_contact_sales`: Benzinga and Intrinio.
+- `licensed_paid_feed`: official Nasdaq and NYSE corporate-action products.
+
+Recommended no-cost starting stack:
+
+- Keep current Nasdaq public calendar ingestion.
+- Add Alpha Vantage `DIVIDENDS` as the first structured fallback.
+- Add EODHD or Polygon as a secondary history/backfill check.
+- Use SEC EDGAR only for investigation/validation, not as the main daily payout-plan feed.
+- Keep Benzinga and official exchange feeds as upgrade paths once the free stack proves the pipeline.
+
 ## Best Split: FastAPI, Agents, MCP, RAG
 
 ### Keep In FastAPI/Core Services
@@ -477,6 +491,8 @@ Phase 1: Make current pipeline correct.
 - Keep market-cap eligibility in monthly/yearly universe maintenance, not daily dividend ingestion.
 - Remove placeholder `555.55` enrichment values.
 
+
+
 Phase 2: Make freshness automatic.
 
 - Add job run/freshness tables.
@@ -500,3 +516,75 @@ Phase 5: Improve RAG.
 - Version embeddings.
 - Add filtered retrieval by date range, symbol, universe membership, and maintained market-cap bucket/eligibility.
 - Add evaluation questions for Recall@K and answer faithfulness.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Yes, I would separate them into three domains, but with a clean dependency direction:
+
+Agents -> MCP tools -> Core services / RAG / DB
+
+Not three isolated apps that all know everything. More like three clear responsibilities.
+
+1. MCP Domain: Tool Boundary
+
+MCP should expose deterministic capabilities:
+
+get_dividend_snapshot
+refresh_nasdaq_calendar
+fetch_alpha_vantage_dividends
+reconcile_dividend_sources
+get_universe_symbols
+get_freshness_report
+search_dividend_rag
+This becomes the stable “tool API” for agents and other clients. MCP should not reason; it should execute.
+
+2. RAG Domain: Retrieval And Grounding
+
+RAG should own:
+
+chunk generation
+embeddings
+vector indexes
+source text/doc retrieval
+semantic search
+grounded context for explanations
+RAG should not decide business truth. For dividend dates/rates, Postgres snapshot data wins. RAG helps explain, summarize, and answer fuzzy questions.
+
+3. Agent Domain: Orchestration
+
+Agents should decide:
+
+Does this need structured dividend data?
+Does this need source reconciliation?
+Is the data stale?
+Should I call RAG?
+Should I call web/news/SEC validation?
+How do I explain conflicts?
+Agents should call MCP tools, not directly import provider clients or DB code.
+
+Professional Recommendation
+
+Keep divcore as the core dividend backend and source of truth. Then split like this:
+
+divcore: FastAPI, DB models, ingestion services, dividend snapshot, symbol universe.
+div_mcp: MCP server exposing dividend tools backed by divcore.
+div_rag: retrieval/indexing service or module; can start inside divcore, but make the boundary clear.
+div_agent: agent app/runtime that only talks to MCP tools.
+If you want to start practical and not over-split too early:
+
+First define MCP tool contracts.
+Move provider calls behind MCP.
+Keep RAG inside divcore temporarily, exposed as an MCP tool.
+Move agents fully outside divcore.
+That gives you separation without creating a distributed-system headache on day one.
