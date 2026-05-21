@@ -23,6 +23,22 @@ async def list_divs_emb(db: AsyncConnection = Depends(get_db),):
     return await DivService.list_divs_emb(db)
 
 
+@divRou.get("/symbols")
+async def list_symbols(
+    limit: int = Query(1000, ge=1, le=10000),
+    db: AsyncConnection = Depends(get_db),
+):
+    return await DivService.list_symbols(db, limit=limit)
+
+
+@divRou.get("/by-symbol/{symbol}")
+async def list_divs_by_symbol(
+    symbol: str,
+    db: AsyncConnection = Depends(get_db),
+):
+    return await DivService.list_divs_by_symbol(db, symbol=symbol)
+
+
 # @divRou.get("/list_lake")
 # def list_files_endpoint():
 #     files = list_files()

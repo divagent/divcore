@@ -21,6 +21,14 @@ class DivService:
     ):
         return await DivRepository.list_divs_emb(db)
 
+    @staticmethod
+    async def list_symbols(db: AsyncConnection, limit: int = 1000):
+        return await DivRepository.list_symbols(db, limit=limit)
+
+    @staticmethod
+    async def list_divs_by_symbol(db: AsyncConnection, symbol: str):
+        return await DivRepository.list_divs_by_symbol(db, symbol=symbol)
+
     # @staticmethod
     # async def reports_pagination(
     #     db: AsyncConnection,
