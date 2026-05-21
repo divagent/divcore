@@ -9,11 +9,13 @@ class DivRepository:
 
     @staticmethod
     async def list_divs(db: AsyncConnection,) -> list[Div]:
-        result = await db.execute(select(Div))
+        result = await db.execute(select(Div.__table__))
+        # ORM/session style was: result = await db.execute(select(Div))
         return result.mappings().all()   # type: ignore[return-value]
 
 
     @staticmethod
     async def list_divs_emb(db: AsyncConnection,) -> list[DivChunk]:
-        result = await db.execute(select(DivChunk))
+        result = await db.execute(select(DivChunk.__table__))
+        # ORM/session style was: result = await db.execute(select(DivChunk))
         return result.mappings().all()   # type: ignore[return-value]

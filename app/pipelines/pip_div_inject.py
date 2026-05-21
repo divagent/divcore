@@ -1,5 +1,5 @@
 from datetime import date
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncConnection
 from app.db.pg_conn import get_db_auto
 from app.service.service_div_inject import DivServicePg
 from app.service.ser_dividend_finnhub import refresh_all_finnhub_market_data, refresh_finnhub_market_data
@@ -26,8 +26,8 @@ class DivPipeline:
 
 
     @staticmethod
-    async def run_daily(db: AsyncSession, today: date) -> dict:
-        upserted = await DivServicePg.from_nasdaq_2pg_4wk(db, today)
+    async def run_daily(db: AsyncConnection, today: date) -> dict:
+        ingestion = await DivServicePg.from_nasdaq_2pg_4wk(db, today)
         deleted  = await DivServicePg.delete_past(db, today)
         deleted  = await DivServicePg.delete_preferred(db)
         # enriched = refresh_all_finnhub_market_data()
@@ -36,14 +36,14 @@ class DivPipeline:
 
         return {
             "deleted_past": deleted,
-            "upserted": upserted,
+            "ingestion": ingestion,
             # "enriched": enriched,
             # "Anomaly": pruned,
         }
 
 
     @staticmethod
-    async def run_monthly(db: AsyncSession) -> dict:
+    async def run_monthly(db: AsyncConnection) -> dict:
         repo = DividendRepo(db)
         upserted = await DivServicePg.from_google_sheet_to_pg(db)   #step 1. 
         print("upserted:", upserted)
@@ -62,7 +62,7 @@ class DivPipeline:
 
 
     @staticmethod
-    async def run_yearly(db: AsyncSession) -> dict:
+    async def run_yearly(db: AsyncConnection) -> dict:
         save2csv = await grab_symbol_list_form_finnhub_to_csv()
         csv2pg = await DividendRepo(db).finnhub_symbol_upsert_loop_csv()
         

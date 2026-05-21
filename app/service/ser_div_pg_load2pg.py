@@ -1,11 +1,14 @@
 # app/service/ser_dividend_load.py
 import csv, pandas as pd
 from datetime import datetime, date
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncConnection
 from sqlalchemy.dialects.postgresql import insert
-from sqlalchemy import delete
+from sqlalchemy import delete, select
 
 from app.db.models.m_div import Div  # your ORM model
+from app.db.models.m_symbols import Symbols
+from app.providers.dividend_provider import NormalizedDividendRow
+from app.providers.nasdaq_dividend_provider import normalize_nasdaq_df
 # from app.service.service_div_inject import map_df_to_div_records  # helper to convert df to dict records for upsert
 
 DATE_FMT = "%m/%d/%Y"  # Nasdaq CSV date format
@@ -14,66 +17,112 @@ DATE_FMT = "%m/%d/%Y"  # Nasdaq CSV date format
 class DividendCsvLoader:
 
     @staticmethod
-    async def load_csv(db: AsyncSession, filename: str) -> int:
+    async def load_csv(db: AsyncConnection, filename: str) -> int:
         """
         Read a CSV (normalized) and insert into DB.
 
         Returns:
             Number of rows inserted
         """
-        inserted = 0
         file_path = f"data/dividends/{filename}"
+        rows: list[dict] = []
 
         with open(file_path, newline="", encoding="utf-8") as f:
             reader = csv.DictReader(f)
 
             for row in reader:
-                dividend = Div(
-                    company_name=row["companyName"],
-                    symbol=row["symbol"],
-                    dividend_ex_date=datetime.strptime(row["dividend_Ex_Date"], DATE_FMT).date(),
-                    payment_date=datetime.strptime(row["payment_Date"], DATE_FMT).date(),
-                    record_date=datetime.strptime(row["record_Date"], DATE_FMT).date(),
-                    dividend_rate=float(row["dividend_Rate"]),
-                    indicated_annual_dividend=float(row["indicated_Annual_Dividend"]),
-                    announcement_date=datetime.strptime(row["announcement_Date"], DATE_FMT).date(),
+                rows.append(
+                    {
+                        "company_name": row["companyName"],
+                        "symbol": row["symbol"],
+                        "dividend_ex_date": datetime.strptime(row["dividend_Ex_Date"], DATE_FMT).date(),
+                        "payment_date": datetime.strptime(row["payment_Date"], DATE_FMT).date(),
+                        "record_date": datetime.strptime(row["record_Date"], DATE_FMT).date(),
+                        "dividend_rate": float(row["dividend_Rate"]),
+                        "indicated_annual_dividend": float(row["indicated_Annual_Dividend"]),
+                        "announcement_date": datetime.strptime(row["announcement_Date"], DATE_FMT).date(),
+                    }
                 )
 
-                db.add(dividend)
-                inserted += 1
+                # ORM/session style was:
+                # dividend = Div(...)
+                # db.add(dividend)
 
-        await db.commit()
-        return inserted
+        if rows:
+            await db.execute(insert(Div), rows)
+        # With AsyncConnection from async_engine.begin(), commit happens at context exit.
+        # ORM/session style was: await db.commit()
+        return len(rows)
 
 
 class DivDfLoader:
+    @staticmethod
+    def _dedupe_latest_by_symbol(rows: list[dict]) -> list[dict]:
+        latest_by_symbol: dict[str, dict] = {}
+        for row in rows:
+            symbol = str(row.get("symbol") or "").strip().upper()
+            if not symbol:
+                continue
+            row["symbol"] = symbol
+            latest_by_symbol[symbol] = row
+        return list(latest_by_symbol.values())
 
     @staticmethod
-    async def load_df(db: AsyncSession, df: pd.DataFrame) -> int:
-        inserted = 0
+    async def get_symbol_universe(db: AsyncConnection) -> set[str]:
+        result = await db.execute(select(Symbols.symbol))
+        return {
+            str(symbol).strip().upper()
+            for symbol in result.scalars().all()
+            if symbol
+        }
+
+    @staticmethod
+    def filter_records_to_universe(
+        rows: list[NormalizedDividendRow],
+        valid_symbols: set[str],
+    ) -> tuple[list[NormalizedDividendRow], int]:
+        filtered: list[NormalizedDividendRow] = []
+        skipped = 0
+
+        for row in rows:
+            if row.symbol.upper() in valid_symbols:
+                filtered.append(row)
+            else:
+                skipped += 1
+
+        return filtered, skipped
+
+    @staticmethod
+    async def load_df(db: AsyncConnection, df: pd.DataFrame) -> int:
+        rows: list[dict] = []
 
         for _, row in df.iterrows():
-            dividend = Div(
-                company_name=row["companyName"],
-                symbol=row["symbol"],
-                dividend_ex_date=datetime.strptime(row["dividend_Ex_Date"], DATE_FMT).date(),
-                payment_date=datetime.strptime(row["payment_Date"], DATE_FMT).date(),
-                record_date=datetime.strptime(row["record_Date"], DATE_FMT).date(),
-                dividend_rate=float(row["dividend_Rate"]),
-                indicated_annual_dividend=float(row["indicated_Annual_Dividend"]),
-                announcement_date=datetime.strptime(row["announcement_Date"], DATE_FMT).date(),
+            rows.append(
+                {
+                    "company_name": row["companyName"],
+                    "symbol": row["symbol"],
+                    "dividend_ex_date": datetime.strptime(row["dividend_Ex_Date"], DATE_FMT).date(),
+                    "payment_date": datetime.strptime(row["payment_Date"], DATE_FMT).date(),
+                    "record_date": datetime.strptime(row["record_Date"], DATE_FMT).date(),
+                    "dividend_rate": float(row["dividend_Rate"]),
+                    "indicated_annual_dividend": float(row["indicated_Annual_Dividend"]),
+                    "announcement_date": datetime.strptime(row["announcement_Date"], DATE_FMT).date(),
+                }
             )
 
-            db.add(dividend)
-            inserted += 1
+            # ORM/session style was:
+            # dividend = Div(...)
+            # db.add(dividend)
 
-        await db.commit()
-        return inserted
+        if rows:
+            await db.execute(insert(Div), rows)
+        # ORM/session style was: await db.commit()
+        return len(rows)
 
 
     @staticmethod
     async def upsert_df_symbol_only(
-        db: AsyncSession,
+        db: AsyncConnection,
         df: pd.DataFrame,
     ) -> int:
         """
@@ -83,19 +132,26 @@ class DivDfLoader:
         if df is None or df.empty:
             return 0
 
-        rows = [
-            {
-                "company_name": r["companyName"],
-                "symbol": r["symbol"],
-                "dividend_ex_date": datetime.strptime(r["dividend_Ex_Date"], DATE_FMT).date(),
-                "record_date": datetime.strptime(r["record_Date"], DATE_FMT).date(),
-                "payment_date": datetime.strptime(r["payment_Date"], DATE_FMT).date(),
-                "dividend_rate": float(r["dividend_Rate"]),
-                "indicated_annual_dividend": float(r["indicated_Annual_Dividend"]),
-                "announcement_date": datetime.strptime(r["announcement_Date"], DATE_FMT).date(),
-            }
-            for r in df.to_dict(orient="records")
-        ]
+        return await DivDfLoader.upsert_normalized_rows(
+            db,
+            normalize_nasdaq_df(df),
+        )
+
+    @staticmethod
+    async def upsert_normalized_rows(
+        db: AsyncConnection,
+        dividend_rows: list[NormalizedDividendRow],
+    ) -> int:
+        rows = DivDfLoader._dedupe_latest_by_symbol(
+            [
+                row.to_div_record()
+                for row in dividend_rows
+                if row.symbol
+            ]
+        )
+
+        if not rows:
+            return 0
 
         stmt = insert(Div).values(rows)
 
@@ -113,12 +169,12 @@ class DivDfLoader:
         )
 
         await db.execute(stmt)
-        await db.commit()
+        # ORM/session style was: await db.commit()
         return len(rows)
     
     
     # @staticmethod
-    # async def upsert_dividends(db: AsyncSession, df: pd.DataFrame):
+    # async def upsert_dividends(db, df: pd.DataFrame):
     #     records = map_df_to_div_records(df)
     #     total = 0
 
@@ -147,8 +203,8 @@ class DivDfLoader:
 class DivClean:
     
     @staticmethod
-    async def delete_past(db: AsyncSession, today: date) -> int:
+    async def delete_past(db: AsyncConnection, today: date) -> int:
         stmt = delete(Div).where(Div.dividend_ex_date < today)
         result = await db.execute(stmt)
-        await db.commit()
-        return result.closed
+        # ORM/session style was: await db.commit()
+        return result.rowcount or 0

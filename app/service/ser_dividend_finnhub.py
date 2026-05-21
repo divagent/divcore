@@ -1,10 +1,11 @@
 # app/services/dividend_service.py
 import time
 from decimal import Decimal
+from sqlalchemy import select, update
+
 from app.db.db_sync import get_db_sync_contextmanager
 from app.db.models.m_div import Div
 from app.providers.finnhub_client import FinnhubClient
-from app.db.repo.repo_div_inject import DividendRepo
 
 
 # Configurable limits
@@ -25,11 +26,32 @@ def refresh_finnhub_market_data(symbol: str) -> dict:
 
     # Service handles DB session internally
     with get_db_sync_contextmanager() as db:
-        rows = DividendRepo.get_by_symbol(db, symbol)
+        result = db.execute(select(Div.__table__).where(Div.symbol == symbol))
+        rows = [dict(row) for row in result.mappings().all()]
+        # ORM/session style was:
+        # rows = DividendRepo.get_by_symbol(db, symbol)
         if not rows:
             raise LookupError(f"No dividend rows for symbol {symbol}")
-        updated = DividendRepo.update_market_data(db, rows, latest_price, market_cap)
-        db.commit()
+
+        updated = 0
+        for row in rows:
+            indicated_annual_dividend = row.get("indicated_annual_dividend")
+            yield_percent = None
+            if indicated_annual_dividend and latest_price > 0:
+                yield_percent = Decimal(indicated_annual_dividend) / latest_price * Decimal("100")
+
+            db.execute(
+                update(Div)
+                .where(Div.id == row["id"])
+                .values(
+                    latest_price=latest_price,
+                    market_cap=market_cap,
+                    yield_percent=yield_percent,
+                )
+            )
+            updated += 1
+
+        # ORM/session style was: db.commit()
 
     return {
         "symbol": symbol,
@@ -44,7 +66,9 @@ def ___refresh_all_finnhub_market_data_old() -> dict:
 
     # Only fetch symbols (detached-safe)
     with get_db_sync_contextmanager() as db:
-        symbols = [row.symbol for row in get_all(db)]
+        result = db.execute(select(Div.symbol))
+        symbols = [row[0] for row in result.all()]
+        # ORM/session style was: symbols = [row.symbol for row in get_all(db)]
 
     api_calls = 0
     minute_start = time.time()
@@ -71,14 +95,28 @@ def ___refresh_all_finnhub_market_data_old() -> dict:
 
             # ✅ load + update in SAME session
             with get_db_sync_contextmanager() as db:
-                rows = get_by_symbol(db, symbol)
-                updated = update_market_data(
-                    db,
-                    rows,
-                    latest_price,
-                    market_cap,
-                )
-                db.commit()
+                result = db.execute(select(Div.__table__).where(Div.symbol == symbol))
+                rows = [dict(row) for row in result.mappings().all()]
+                updated = 0
+                for row in rows:
+                    indicated_annual_dividend = row.get("indicated_annual_dividend")
+                    yield_percent = None
+                    if indicated_annual_dividend and latest_price > 0:
+                        yield_percent = Decimal(indicated_annual_dividend) / latest_price * Decimal("100")
+                    db.execute(
+                        update(Div)
+                        .where(Div.id == row["id"])
+                        .values(
+                            latest_price=latest_price,
+                            market_cap=market_cap,
+                            yield_percent=yield_percent,
+                        )
+                    )
+                    updated += 1
+                # ORM/session style was:
+                # rows = get_by_symbol(db, symbol)
+                # updated = update_market_data(...)
+                # db.commit()
 
             results.append({
                 "symbol": symbol,
@@ -113,7 +151,9 @@ def refresh_all_finnhub_market_data() -> dict:
     client = FinnhubClient()
 
     with get_db_sync_contextmanager() as db:
-        divs = db.query(Div).all()
+        result = db.execute(select(Div.__table__))
+        divs = [dict(row) for row in result.mappings().all()]
+        # ORM/session style was: divs = db.query(Div).all()
 
         api_calls = 0
         window_start = time.time()
@@ -131,7 +171,7 @@ def refresh_all_finnhub_market_data() -> dict:
                 window_start = time.time()
 
             try:
-                data = client.get_quote_and_profile(div.symbol)
+                data = client.get_quote_and_profile(div["symbol"])
 
                 price = data.get("latest_price")
                 market_cap = data.get("market_cap")
@@ -140,8 +180,17 @@ def refresh_all_finnhub_market_data() -> dict:
                     skipped += 1
                     continue
 
-                div.latest_price = Decimal(str(price))
-                div.market_cap = Decimal(str(market_cap))
+                db.execute(
+                    update(Div)
+                    .where(Div.id == div["id"])
+                    .values(
+                        latest_price=Decimal(str(price)),
+                        market_cap=Decimal(str(market_cap)),
+                    )
+                )
+                # ORM/session style was:
+                # div.latest_price = Decimal(str(price))
+                # div.market_cap = Decimal(str(market_cap))
 
                 updated += 1
 
@@ -150,7 +199,7 @@ def refresh_all_finnhub_market_data() -> dict:
 
             api_calls += 1
 
-        db.commit()
+        # ORM/session style was: db.commit()
 
     return {
         "rows": len(divs),

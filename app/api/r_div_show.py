@@ -36,7 +36,7 @@ async def list_divs_emb(db: AsyncConnection = Depends(get_db),):
     
 # @divRou.get("/pagination")
 # async def list_reports(
-#     db: AsyncSession = Depends(get_db),
+#     db = Depends(get_db),
 #     page: int = Query(1, ge=1),
 #     page_size: int = Query(10, le=100),
 #     query: str | None = None,
@@ -58,7 +58,7 @@ async def list_divs_emb(db: AsyncConnection = Depends(get_db),):
 # async def update_report(
 #     report_id: str,
 #     payload: dict,
-#     db: AsyncSession = Depends(get_db),
+#     db = Depends(get_db),
 # ):
 #     return await DivService.update_partial(db, report_id, payload)
 
@@ -77,7 +77,7 @@ async def list_divs_emb(db: AsyncConnection = Depends(get_db),):
 #     first_name: str | None = None,
 #     last_name: str | None = None,
 #     company: str | None = None,
-#     db: AsyncSession = Depends(get_db),
+#     db = Depends(get_db),
 # ):
 #     return await DivService.list_filtered_reports(
 #         db,

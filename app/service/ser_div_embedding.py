@@ -1,4 +1,4 @@
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncConnection
 from sqlalchemy import select, delete
 
 from app.llm.azure_openai_embedding import embed_fn_azure_new_v1
@@ -10,14 +10,14 @@ class EmbeddingService:
 
     @staticmethod   
     async def embed_all_dummy(
-        db: AsyncSession,
+        db: AsyncConnection,
     ) -> int:
         rows = await DivEmbeddingRepository.fetch_div_pgvector(db)
 
         for r in rows:
-            text = r.content  # or combine EN + FR if you want
+            text = r["content"]  # or combine EN + FR if you want
             emb = await embed_fn_azure_new_v1(text)
-            await DivEmbeddingRepository.update_embedding(db, r.id, emb)
+            await DivEmbeddingRepository.update_embedding(db, r["id"], emb)
 
-        await db.commit()
+        # ORM/session style was: await db.commit()
         return len(rows)

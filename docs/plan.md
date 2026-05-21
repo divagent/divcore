@@ -37,9 +37,6 @@ Expected:
 
 # Phase 1 — Make Core Dividend Backend Solid
 
-## 1. Fix DB session dependency
-- Change `get_db()` to yield `AsyncSession`
-- Remove raw connection usage
 
 **Test**
 - `/div_show/list` works

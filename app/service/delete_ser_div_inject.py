@@ -2,7 +2,7 @@
 import requests
 from datetime import date, timedelta
 import pandas as pd
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncConnection
 
 from app.service.service_div_inject import DivDfLoader
 from app.util.util_grab_div import grab_nasdaq_to_df
@@ -11,7 +11,7 @@ from app.util.util_grab_div import grab_nasdaq_to_df
 class DividendPipeline:
 
     @staticmethod
-    async def nasdaq2pg(db: AsyncSession, target_date: str) -> int:
+    async def nasdaq2pg(db: AsyncConnection, target_date: str) -> int:
         """
         Grab dividends from Nasdaq for the target date and load into PostgreSQL.
 
@@ -29,7 +29,7 @@ class DividendPipeline:
 
 
     @staticmethod
-    async def nasdaq_4w2pg(db: AsyncSession) -> int:
+    async def nasdaq_4w2pg(db: AsyncConnection) -> int:
         """
         Grab dividends from today -> next 4 weeks and upsert into PostgreSQL.
 
