@@ -2,7 +2,17 @@ import pytest
 from app.agent.age_brain import decide_next_action
 
 @pytest.mark.asyncio
-async def test_brain_tool_selection():
+async def test_brain_tool_selection(monkeypatch):
+    async def fake_chat_completion_agent(*, messages):
+        assert messages[0]["role"] == "system"
+        assert "MSFT" in messages[-1]["content"].upper()
+        return '{"thought":"Dividend yield needs internal data.","tool":"get_dividend_data","tool_input":"MSFT dividend yield"}'
+
+    monkeypatch.setattr(
+        "app.agent.age_brain.chat_completion_agent",
+        fake_chat_completion_agent,
+    )
+
     messages = [{"role": "user", "content": "What is the yield for MSFT?"}]
     decision = await decide_next_action(messages)
     
@@ -23,7 +33,16 @@ async def test_brain_tool_selection():
         assert "MSFT" in str(decision).upper()
 
 @pytest.mark.asyncio
-async def test_brain_direct_answer():
+async def test_brain_direct_answer(monkeypatch):
+    async def fake_chat_completion_agent(*, messages):
+        assert messages[0]["role"] == "system"
+        return '{"thought":"Greeting does not need tools.","answer":"Hello! How can I help?"}'
+
+    monkeypatch.setattr(
+        "app.agent.age_brain.chat_completion_agent",
+        fake_chat_completion_agent,
+    )
+
     messages = [{"role": "user", "content": "Hello, bot!"}]
     decision = await decide_next_action(messages)
 

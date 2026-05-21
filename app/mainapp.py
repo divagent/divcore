@@ -58,6 +58,10 @@ def create_app() -> FastAPI:
     
     app.middleware("http")(request_context_middleware)
 
+    @app.get("/health", tags=["health"])
+    async def health_check():
+        return {"status": "ok"}
+
     app.include_router(rou)
 
     return app
