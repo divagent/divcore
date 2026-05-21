@@ -286,11 +286,21 @@ Current source roles:
 
 Recommended source expansion:
 
-- Keep Nasdaq as a dividend calendar source.
-- Keep Finnhub for enrichment, but cache and rate-limit aggressively.
-- Add at least one fallback dividend source for reconciliation.
+- Keep the curated tick/symbol table as the universe source of truth.
+- If budget allows, use official exchange corporate-action products as the highest-confidence source: Nasdaq Corporate Actions/Daily List for Nasdaq names and NYSE Corporate Actions/Market Event Feed for NYSE names.
+- For a practical API-first setup, add a dividend-calendar provider with explicit upcoming-date support, such as Benzinga or Alpha Vantage, and keep Nasdaq calendar as another source.
+- Use EODHD, Polygon/Massive, or Intrinio as secondary/fallback providers depending on pricing, coverage, and whether the project needs historical records, latest records, or predicted future dates.
+- Keep Finnhub for enrichment and profile data, but do not make live market-cap updates part of the daily dividend eligibility flow.
 - Add source-confidence and conflict-resolution logic.
 - Record per-field provenance, because different sources may disagree.
+
+Recommended provider roles:
+
+- `exchange_official`: highest confidence, if licensed. Use for production corporate-action truth.
+- `calendar_primary`: practical upcoming-dividend API. Candidate: Benzinga if predicted/unconfirmed future dates matter; Alpha Vantage if declared future distributions are enough.
+- `calendar_secondary`: Nasdaq public calendar or another paid provider for cross-checking.
+- `history_secondary`: EODHD, Polygon/Massive, or Intrinio for backfill and reconciliation.
+- `filing_validation`: SEC/EDGAR or issuer press releases for investigation, not as the daily structured feed.
 
 ## Best Split: FastAPI, Agents, MCP, RAG
 
