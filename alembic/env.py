@@ -19,7 +19,7 @@ if str(PROJECT_ROOT) not in sys.path:
 config = context.config
 if config.config_file_name is not None: fileConfig(config.config_file_name)
 
-DATABASE_URL = settings.DIV_ADMIN
+DATABASE_URL = settings.DIV_AIVEN_ADMIN
 if DATABASE_URL.startswith("postgresql+asyncpg://"): DATABASE_URL = DATABASE_URL.replace("postgresql+asyncpg://","postgresql+psycopg2://",1,)
 config.set_main_option("sqlalchemy.url", DATABASE_URL)
 target_metadata = Base.metadata

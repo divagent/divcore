@@ -5,7 +5,7 @@ from typing import Optional, Dict, Any, List, TYPE_CHECKING
 
 from pgvector.sqlalchemy import Vector
 from sqlalchemy.orm import Mapped, mapped_column
-from sqlalchemy import Column, ForeignKey, Index, String, Integer, Date, Numeric
+from sqlalchemy import Column, ForeignKey, Index, String, Integer, Date, Numeric, Text, Float, UniqueConstraint
 
 from app.db.models.m_base import Base, BaseMixin
 
@@ -29,7 +29,28 @@ class Div(Base, BaseMixin):
     
     div_type:   Mapped[str] = mapped_column(String(255), nullable=True, index=True)
     company_type:   Mapped[str] = mapped_column(String(255), nullable=True, index=True)
-    
+
+
+class DivPrediction(Base, BaseMixin):
+    """AI-predicted next dividend for a symbol.
+
+    Kept separate from `dividends` (which is a one-row-per-symbol snapshot that
+    gets purged by `delete_past`) so predictions are never overwritten or deleted.
+    """
+    __tablename__ = "dividend_predictions"
+
+    symbol:            Mapped[str] = mapped_column(String(50), nullable=False, index=True)
+    predicted_ex_date: Mapped[date] = mapped_column(Date, nullable=True, index=True)
+    predicted_amount:  Mapped[Decimal] = mapped_column(Numeric(10, 4), nullable=True)
+    direction:         Mapped[str] = mapped_column(String(20), nullable=True)  # up|down|constant
+    confidence:        Mapped[float] = mapped_column(Float, nullable=True)     # high|low as float score
+    reasoning:         Mapped[str] = mapped_column(Text, nullable=True)
+    sources:           Mapped[str] = mapped_column(Text, nullable=True)        # JSON-encoded list
+    google_event_id:   Mapped[str] = mapped_column(String(255), nullable=True, index=True)
+
+    __table_args__ = (
+        UniqueConstraint("symbol", "predicted_ex_date", name="uq_prediction_symbol_ex_date"),
+    )
 
 
 

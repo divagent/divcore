@@ -6,7 +6,7 @@ from app.config import get_settings_singleton
 settings = get_settings_singleton()
 
 # convert async url -> sync url
-SYNC_DATABASE_URL = settings.DIV_ADMIN.replace(
+SYNC_DATABASE_URL = settings.DIV_AIVEN_ADMIN.replace(
     "postgresql+asyncpg://",
     "postgresql+psycopg2://",
 )

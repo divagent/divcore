@@ -30,8 +30,8 @@ class _Settings(BaseSettings):
     FINNHUB_API_KEY:  str = "ff"
 
     # Database
-    DIV_ADMIN: str = "postgresql+asyncpg://username:pwd@local/icedb"
-    DIV_RLS: str = "postgresql+asyncpg://username:pwd@local/icedb"
+    DIV_AIVEN_ADMIN: str = "postgresql+asyncpg://username:pwd@local/icedb"
+    DIV_AIVEN_RLS: str = "postgresql+asyncpg://username:pwd@local/icedb"
     DB_POOL_SIZE: int = 5
     DB_MAX_OVERFLOW: int = 10
     DB_ECHO: bool = False
