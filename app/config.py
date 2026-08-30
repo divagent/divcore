@@ -14,7 +14,7 @@ class _Settings(BaseSettings):
     GOOGLE_SHEET_URL: str= "https://docs.google.com/spreadsheets/d/15QBf76ab4zSt-S-oGSrSpgdJngpdGCxFMJqZkC6_sAM/export?format=csv"
     NASDAQ_URL: str= "https://api.nasdaq.com/api/calendar/dividends"
 
-    
+    GOOGLE_PROJECT_ID: str = "divcalendar-507102"
     
     GEMINI_API_KEY: Optional[str] = None
     GEMINI_API_KEY_OPHIR: Optional[str] = None
@@ -28,6 +28,12 @@ class _Settings(BaseSettings):
     ALPHAVANTAGE_API_KEY:  str = "ff"
     EOD_API_KEY:  str = "ff"
     FINNHUB_API_KEY:  str = "ff"
+
+    # Google Calendar (predicted-dividend publishing) — see followup.md
+    GOOGLE_OAUTH_CLIENT_ID: Optional[str] = "590057077351-seft0saimg261h13i3o8us7cpam5bkc8.apps.googleusercontent.com"
+    GOOGLE_OAUTH_CLIENT_SECRET: Optional[str] = None
+    GOOGLE_OAUTH_REFRESH_TOKEN: Optional[str] = None
+    GOOGLE_CALENDAR_ID: Optional[str] = None
 
     # Database
     DIV_AIVEN_ADMIN: str = "postgresql+asyncpg://username:pwd@local/icedb"

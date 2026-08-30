@@ -9,6 +9,8 @@ dependencies = [
     "azure-search-documents[aio]>=11.6.0",
     "azure-storage-file-datalake>=12.23.0",
     "fastapi[standard]>=0.128.0",
+    "google-api-python-client>=2.150.0",
+    "google-auth-oauthlib>=1.4.1",
     "google-genai>=1.62.0",
     "langchain>=1.2.8",
     # Original OpenAI/Azure dependencies kept for reference:

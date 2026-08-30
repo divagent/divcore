@@ -4,7 +4,7 @@ from functools import lru_cache
 from google import genai
 
 
-DEFAULT_GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+DEFAULT_GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.6-flash")
 
 
 @lru_cache(maxsize=1)
