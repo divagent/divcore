@@ -6,6 +6,7 @@ from app.agent.age_executor import run_agent_executor
 from app.service.ser_ai_rag import rag_query
 from app.agent.ag1.ag_core import run_agent
 from app.db.conn.db_async import get_db
+from app.schemas.sch_predict import PredictRequest, PredictResponse
 from app.service.ser_div_predict_publish import predict_and_publish
 
 agentRou = APIRouter()
@@ -25,11 +26,18 @@ async def chat_with_agent(question: str):
     return result
 
 
-@agentRou.post("/predict_dividend")
+@agentRou.post("/predict_dividend", response_model=PredictResponse)
 async def predict_dividend_endpoint(
-    symbol: str,
+    req: PredictRequest,
     db: AsyncConnection = Depends(get_db),
 ):
-    """Predict the next dividend for a symbol, persist it, and publish it to the
-    public Google Calendar (idempotent). Returns the prediction + calendar status."""
-    return await predict_and_publish(symbol, db, trace_id=f"api:{symbol.upper()}")
+    """Analyze a dividend from the frontend's authoritative facts and return all
+    three labeled layers (facts / pattern / research), optionally publishing one
+    idempotent all-day event per ex-date to the public Google Calendar.
+
+    The facts in the body are authoritative — the backend echoes them verbatim and
+    never re-fetches them. See src/data/ai-query.contract.md in the frontend repo.
+    """
+    return await predict_and_publish(
+        req, db, trace_id=f"api:{req.symbol.strip().upper()}"
+    )

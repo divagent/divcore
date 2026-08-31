@@ -173,6 +173,83 @@ class GoogleCalendarClient:
 
     # -- public API -------------------------------------------------------
 
+    def upsert_event(
+        self,
+        *,
+        symbol: str,
+        ex_date: str,
+        summary: str,
+        description: str,
+        kind: str,
+        confidence: Optional[float] = None,
+        trace_id: str = "internal",
+    ) -> dict:
+        """Create or update one all-day event, idempotent by (symbol, ex_date).
+
+        Used for all three layers (fact / estimate / prediction). The id keys on
+        (symbol, ex_date) only, so re-running overrides the event on that date in
+        place — one event per date, as agreed. Returns the Google event resource
+        plus an "action" key ('created' | 'updated')."""
+        start = date.fromisoformat(ex_date)
+        end = start + timedelta(days=1)
+        private = {"app": "divcore", "kind": kind, "symbol": symbol}
+        if confidence is not None:
+            private["confidence"] = f"{confidence:.4f}"
+
+        body = {
+            "id": self._event_id(symbol, ex_date),
+            "summary": summary,
+            "description": description,
+            "start": {"date": start.isoformat()},
+            "end": {"date": end.isoformat()},
+            "transparency": "transparent",
+            "extendedProperties": {"private": private},
+        }
+        event_id = body["id"]
+        service = self._get_service()
+
+        try:
+            try:
+                event = (
+                    service.events()
+                    .update(calendarId=self._calendar_id, eventId=event_id, body=body)
+                    .execute()
+                )
+                action = "updated"
+            except HttpError as exc:
+                if exc.resp.status != 404:
+                    raise
+                event = (
+                    service.events()
+                    .insert(calendarId=self._calendar_id, body=body)
+                    .execute()
+                )
+                action = "created"
+        except HttpError as exc:
+            log_event(
+                "gcal_upsert_failure",
+                trace_id=trace_id,
+                symbol=symbol,
+                ex_date=ex_date,
+                kind=kind,
+                severity="HIGH",
+                status=getattr(exc.resp, "status", None),
+                error=str(exc),
+            )
+            raise
+
+        event["action"] = action
+        log_event(
+            "gcal_upsert_done",
+            trace_id=trace_id,
+            symbol=symbol,
+            ex_date=ex_date,
+            kind=kind,
+            action=action,
+            event_id=event.get("id"),
+        )
+        return event
+
     def publish_prediction(
         self, prediction: DividendPrediction, *, trace_id: str = "internal"
     ) -> dict:
@@ -247,3 +324,25 @@ def publish_prediction(
 ) -> dict:
     """Publish a single prediction using credentials from settings/.env."""
     return GoogleCalendarClient().publish_prediction(prediction, trace_id=trace_id)
+
+
+def upsert_event(
+    *,
+    symbol: str,
+    ex_date: str,
+    summary: str,
+    description: str,
+    kind: str,
+    confidence: Optional[float] = None,
+    trace_id: str = "internal",
+) -> dict:
+    """Upsert one labeled all-day event using credentials from settings/.env."""
+    return GoogleCalendarClient().upsert_event(
+        symbol=symbol,
+        ex_date=ex_date,
+        summary=summary,
+        description=description,
+        kind=kind,
+        confidence=confidence,
+        trace_id=trace_id,
+    )
