@@ -181,6 +181,7 @@ class GoogleCalendarClient:
         summary: str,
         description: str,
         kind: str,
+        amount: Optional[float] = None,
         confidence: Optional[float] = None,
         trace_id: str = "internal",
     ) -> dict:
@@ -193,6 +194,8 @@ class GoogleCalendarClient:
         start = date.fromisoformat(ex_date)
         end = start + timedelta(days=1)
         private = {"app": "divcore", "kind": kind, "symbol": symbol}
+        if amount is not None:
+            private["amount"] = f"{amount}"
         if confidence is not None:
             private["confidence"] = f"{confidence:.4f}"
 
@@ -249,6 +252,78 @@ class GoogleCalendarClient:
             event_id=event.get("id"),
         )
         return event
+
+    def list_events(
+        self, *, time_min: str, time_max: str, trace_id: str = "internal"
+    ) -> list[dict]:
+        """Return this app's calendar events between two ISO dates (inclusive),
+        parsed into flat dicts sorted by ex-date. Only events tagged app=divcore
+        are returned. Raises CalendarNotConfigured if creds are missing."""
+        service = self._get_service()
+        # All-day events are bounded by RFC3339 timestamps; pad the window to cover
+        # whole days regardless of timezone.
+        time_min_ts = f"{time_min}T00:00:00Z"
+        time_max_ts = f"{time_max}T23:59:59Z"
+
+        items: list[dict] = []
+        page_token = None
+        try:
+            while True:
+                resp = (
+                    service.events()
+                    .list(
+                        calendarId=self._calendar_id,
+                        timeMin=time_min_ts,
+                        timeMax=time_max_ts,
+                        singleEvents=True,
+                        orderBy="startTime",
+                        privateExtendedProperty="app=divcore",
+                        maxResults=250,
+                        pageToken=page_token,
+                    )
+                    .execute()
+                )
+                for ev in resp.get("items", []):
+                    items.append(self._parse_event(ev))
+                page_token = resp.get("nextPageToken")
+                if not page_token:
+                    break
+        except HttpError as exc:
+            log_event(
+                "gcal_list_failure",
+                trace_id=trace_id,
+                severity="HIGH",
+                status=getattr(exc.resp, "status", None),
+                error=str(exc),
+            )
+            raise
+
+        items.sort(key=lambda i: i["exDate"])
+        log_event("gcal_list_done", trace_id=trace_id, count=len(items))
+        return items
+
+    @staticmethod
+    def _parse_event(ev: dict) -> dict:
+        priv = (ev.get("extendedProperties") or {}).get("private") or {}
+        ex_date = (ev.get("start") or {}).get("date") or (ev.get("start") or {}).get("dateTime", "")[:10]
+
+        def _num(key: str):
+            raw = priv.get(key)
+            try:
+                return float(raw) if raw not in (None, "") else None
+            except (TypeError, ValueError):
+                return None
+
+        return {
+            "exDate": ex_date,
+            "symbol": priv.get("symbol") or "",
+            "amount": _num("amount"),
+            "kind": priv.get("kind") or "fact",
+            "confidence": _num("confidence"),
+            "summary": ev.get("summary") or "",
+            "googleEventId": ev.get("id"),
+            "htmlLink": ev.get("htmlLink"),
+        }
 
     def publish_prediction(
         self, prediction: DividendPrediction, *, trace_id: str = "internal"
@@ -333,6 +408,7 @@ def upsert_event(
     summary: str,
     description: str,
     kind: str,
+    amount: Optional[float] = None,
     confidence: Optional[float] = None,
     trace_id: str = "internal",
 ) -> dict:
@@ -343,6 +419,14 @@ def upsert_event(
         summary=summary,
         description=description,
         kind=kind,
+        amount=amount,
         confidence=confidence,
         trace_id=trace_id,
+    )
+
+
+def list_events(*, time_min: str, time_max: str, trace_id: str = "internal") -> list[dict]:
+    """List this app's calendar events in [time_min, time_max] using settings/.env."""
+    return GoogleCalendarClient().list_events(
+        time_min=time_min, time_max=time_max, trace_id=trace_id
     )

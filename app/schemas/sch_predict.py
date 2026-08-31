@@ -115,3 +115,24 @@ class PredictResponse(BaseModel):
     pattern: PatternLayer
     research: ResearchLayer
     calendar: CalendarLayer
+
+
+# ---- Upcoming calendar (read) --------------------------------------------
+
+
+class CalendarItem(BaseModel):
+    exDate: str
+    symbol: str
+    amount: Optional[float] = None
+    kind: Literal["fact", "estimate", "prediction"] = "fact"
+    confidence: Optional[float] = None
+    summary: str = ""
+    googleEventId: Optional[str] = None
+    htmlLink: Optional[str] = None
+
+
+class UpcomingCalendarResponse(BaseModel):
+    startDate: str
+    endDate: str
+    items: List[CalendarItem] = Field(default_factory=list)
+    errors: List[str] = Field(default_factory=list)

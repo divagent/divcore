@@ -68,6 +68,7 @@ def _plan_events(
         consider(d.exDate, "fact", {
             "summary": f"{symbol} {_fmt_amount(d.amount)} (confirmed)",
             "description": f"Confirmed dividend for {symbol} on {d.exDate}.",
+            "amount": d.amount,
             "confidence": None,
         })
 
@@ -75,6 +76,7 @@ def _plan_events(
         consider(p.exDate, "estimate", {
             "summary": f"{symbol} {_fmt_amount(p.amount)} (estimate)",
             "description": f"Pattern estimate for {symbol}. {pattern.summary}",
+            "amount": p.amount,
             "confidence": None,
         })
 
@@ -91,6 +93,7 @@ def _plan_events(
                 + ("\n\nSources:\n" + "\n".join(f"  - {s.url}" for s in research.sources)
                    if research.sources else "")
             ),
+            "amount": nxt.amount,
             "confidence": research.confidence,
         })
 
@@ -112,6 +115,7 @@ async def _publish_all(
                 summary=ev["summary"],
                 description=ev["description"],
                 kind=ev["kind"],
+                amount=ev.get("amount"),
                 confidence=ev.get("confidence"),
                 trace_id=trace_id,
             )
