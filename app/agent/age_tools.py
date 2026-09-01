@@ -1,30 +1,8 @@
-import os
 from tavily import AsyncTavilyClient
-from app.service.ser_ai_rag import rag_query
 from app.config import get_settings_singleton
 settings = get_settings_singleton()
 
 tavily_client = AsyncTavilyClient(api_key=settings.TAVILY_API_KEY)
-
-
-async def get_dividend_data_tool(tool_input: str):
-    """
-    Wrapper for the RAG service to ensure standardized output for the agent.
-    """
-    try:
-        result = await rag_query(question=tool_input, top_k=3)
-        
-        if not result.get("sources"):
-            return {"error": "No data found for this query in the dividend database."}
-            
-        return {
-            "data": result["answer"],
-            "sources": result["sources"]
-        }
-    except Exception as e:
-        return {"error": f"Tool execution failed: {str(e)}"}
-    
-    
 
 
 async def search_web_tool(query: str):
