@@ -47,6 +47,7 @@ async def reconcile_declared(
     declared: dict,
     *,
     note: Optional[str] = None,
+    fallback_ex_date: Optional[str] = None,
     trace_id: str = "internal",
 ) -> Optional[dict]:
     """Correct the public calendar to reflect a freshly-discovered declaration.
@@ -55,9 +56,13 @@ async def reconcile_declared(
     ``{exDate, amount, declarationDate, payDate}``. Never raises. Returns a small
     summary dict (``{exDate, amount, removedStale, action, corrected}``) on success,
     or ``None`` if there was nothing to do or the calendar is not configured.
+
+    ``fallback_ex_date`` is used when the declaration carries an amount but no
+    ex-date (extraction sometimes finds the amount only): we then correct the row
+    IN PLACE on the calendar row's own date rather than silently doing nothing.
     """
     symbol = (symbol or "").strip().upper()
-    ex = (declared or {}).get("exDate")
+    ex = (declared or {}).get("exDate") or fallback_ex_date
     if not symbol or not ex:
         return None
     try:

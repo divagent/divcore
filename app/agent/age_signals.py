@@ -18,6 +18,7 @@ Providers: Financial Modeling Prep (declared dividends + payout/FCF), Finnhub
 from __future__ import annotations
 
 import asyncio
+import re
 from dataclasses import dataclass, field
 from datetime import date, timedelta
 from typing import Any, Optional
@@ -333,6 +334,158 @@ async def _tavily(symbol: str, company: Optional[str]) -> Optional[dict]:
 
 
 # ---------------------------------------------------------------------------
+# Provider: Yahoo Finance news RSS — symbol-specific headlines.
+#
+# Yahoo's per-symbol RSS feed carries company-specific news (analyst notes,
+# guidance changes, dividend chatter) for BOTH US and non-US listings — including
+# the TSX, which the US-only structured providers miss. This is the "catch it in
+# the news before it's declared" signal, from a source the app already trusts.
+# ---------------------------------------------------------------------------
+
+
+def _strip_cdata(s: str) -> str:
+    return re.sub(r"<!\[CDATA\[|\]\]>", "", s or "").strip()
+
+
+async def _yahoo_news(client: httpx.AsyncClient, symbol: str) -> Optional[dict]:
+    base = (symbol or "").strip().upper()
+    try:
+        r = await client.get(
+            "https://feeds.finance.yahoo.com/rss/2.0/headline",
+            params={"s": base, "region": "US", "lang": "en-US"},
+            headers={"User-Agent": "Mozilla/5.0 (compatible; DivCore/1.0)"},
+        )
+    except Exception:
+        return None
+    if r.status_code != 200:
+        return None
+
+    lines: list[str] = []
+    sources: list[dict] = []
+    for item in re.findall(r"<item>(.*?)</item>", r.text, re.S)[:8]:
+        tm = re.search(r"<title>(.*?)</title>", item, re.S)
+        lm = re.search(r"<link>(.*?)</link>", item, re.S)
+        title = _strip_cdata(tm.group(1)) if tm else ""
+        link = _strip_cdata(lm.group(1)) if lm else ""
+        dm = re.search(r"<description>(.*?)</description>", item, re.S)
+        desc = re.sub(r"<[^>]+>", "", _strip_cdata(dm.group(1)))[:200] if dm else ""
+        if not title:
+            continue
+        lines.append(f"- {title}. {desc}".rstrip())
+        if link:
+            sources.append({"title": title, "url": link})
+
+    if not lines:
+        return None
+    return {"label": "NEWS (Yahoo Finance)", "lines": lines, "sources": sources}
+
+
+# ---------------------------------------------------------------------------
+# Provider: dividendhistory.org — DETERMINISTIC declared dividend.
+#
+# The structured providers (FMP/Finnhub/Alpha) don't cover non-US listings like
+# the TSX, which left the declared amount to a flaky LLM extraction over mixed
+# web snippets (it mis-picked a stale pre-cut figure). This tracker publishes the
+# declared/confirmed dividend in a clean table, so we parse it directly — the
+# top row that is NOT marked 'unconfirmed/estimated' is the latest DECLARED
+# dividend (ex-date, pay-date, amount, and a change/status like "-55.19%").
+# ---------------------------------------------------------------------------
+
+# Exchange-suffix -> dividendhistory.org exchange path segment. US tickers use
+# no segment (/payout/AAPL/); others are /payout/<EXCHANGE>/<ticker>/.
+_DH_EXCHANGE = {"TO": "TSX", "V": "TSXV", "NE": "NEO", "CN": "CSE"}
+
+
+def _parse_dividend_history(html: str) -> Optional[dict]:
+    """Return the latest DECLARED (confirmed, non-estimated) dividend row."""
+    m = re.search(r'<table id="dividend-table">.*?</table>', html, re.S)
+    if not m:
+        return None
+    for attrs, row in re.findall(r"<tr([^>]*)>(.*?)</tr>", m.group(0), re.S):
+        if "unconfirmed" in attrs.lower():
+            continue  # future projection, not declared
+        cells = re.findall(r"<td[^>]*>(.*?)</td>", row, re.S)
+        if len(cells) < 3:
+            continue
+        clean = [re.sub(r"<[^>]+>", "", c).strip() for c in cells]
+        status = clean[3] if len(clean) > 3 else ""
+        if "unconfirmed" in status.lower() or "estimated" in status.lower():
+            continue
+        amt_m = re.search(r"-?\d+\.?\d*", clean[2].replace(",", ""))
+        if not amt_m:
+            continue
+        try:
+            ex_iso = _d(clean[0]).isoformat()
+        except ValueError:
+            continue
+        pay_iso = None
+        try:
+            pay_iso = _d(clean[1]).isoformat()
+        except ValueError:
+            pass
+        return {
+            "exDate": ex_iso,
+            "amount": float(amt_m.group()),
+            "declarationDate": None,
+            "payDate": pay_iso,
+            "status": status,
+        }
+    return None
+
+
+async def _dividend_tracker(client: httpx.AsyncClient, symbol: str) -> Optional[dict]:
+    """Fetch dividendhistory.org and parse the declared dividend deterministically."""
+    base = (symbol or "").strip().upper()
+    root = _root(base)
+    parts = base.split(".")
+    suffix = parts[1] if len(parts) == 2 else None
+
+    # Try the exchange-specific path first (for listings that need it), then the
+    # bare US path. First page that parses a declared row wins.
+    candidates: list[str] = []
+    if suffix and suffix in _DH_EXCHANGE:
+        candidates.append(f"https://dividendhistory.org/payout/{_DH_EXCHANGE[suffix]}/{root}/")
+    if not suffix:
+        candidates.append(f"https://dividendhistory.org/payout/{root}/")
+
+    headers = {"User-Agent": "Mozilla/5.0 (compatible; DivCore/1.0)"}
+    for url in candidates:
+        try:
+            r = await client.get(url, headers=headers, follow_redirects=True)
+        except Exception:
+            continue
+        if r.status_code != 200:
+            continue
+        declared = _parse_dividend_history(r.text)
+        if not declared:
+            continue
+
+        status = (declared.pop("status", "") or "").strip()
+        note = None
+        cut = re.search(r"-\s*(\d+(?:\.\d+)?)\s*%", status)
+        if cut:
+            note = f"cut {cut.group(1)}%"
+        elif "%" in status:
+            note = status[:40]
+
+        amt_txt = declared["amount"]
+        line = (
+            f"DECLARED dividend on record: {amt_txt} per share, ex-date "
+            f"{declared['exDate']}, pays {declared['payDate'] or 'n/a'}"
+            + (f" ({note})" if note else "")
+            + "."
+        )
+        return {
+            "label": "DECLARED (dividendhistory.org)",
+            "declared": declared,
+            "declared_note": note,
+            "lines": [line],
+            "sources": [{"title": f"{root} dividend history", "url": url}],
+        }
+    return None
+
+
+# ---------------------------------------------------------------------------
 # Declaration resolver — extract the MOST RECENT declared dividend from the
 # gathered web text. This is the fallback for symbols the structured providers
 # (FMP/Finnhub) don't cover, e.g. TSX. The retrieved snippets often contain both
@@ -423,6 +576,8 @@ async def gather_dividend_signals(
     async with httpx.AsyncClient(timeout=_TIMEOUT, follow_redirects=True) as client:
         blocks = await asyncio.gather(
             _fmp(client, symbol, target_ex),
+            _dividend_tracker(client, symbol),
+            _yahoo_news(client, symbol),
             _finnhub(client, symbol),
             _alpha(client, symbol),
             _tavily(symbol, company_name),
@@ -446,6 +601,8 @@ async def gather_dividend_signals(
                 sources.append(src)
         if block.get("declared") and sig.declared is None:
             sig.declared = block["declared"]
+            if block.get("declared_note") and sig.declared_note is None:
+                sig.declared_note = block["declared_note"]
         if block.get("payout_ratio") is not None and sig.payout_ratio is None:
             sig.payout_ratio = block["payout_ratio"]
         if block.get("fcf_per_share") is not None and sig.fcf_per_share is None:

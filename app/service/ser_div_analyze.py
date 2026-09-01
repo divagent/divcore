@@ -107,6 +107,7 @@ async def analyze_dividend(
                     symbol,
                     signals.declared,
                     note=signals.declared_note,
+                    fallback_ex_date=req.exDate,
                     trace_id=trace_id,
                 )
             )

@@ -220,6 +220,7 @@ async def predict_and_publish(
                 symbol,
                 research.declared.model_dump(),
                 note=research.declared.note,
+                fallback_ex_date=research.predictedNext.exDate,
                 trace_id=trace_id,
             )
 
