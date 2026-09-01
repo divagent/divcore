@@ -14,6 +14,28 @@ from pydantic import BaseModel, Field
 # ---- Request -------------------------------------------------------------
 
 
+class AnalyzeFactDividend(BaseModel):
+    exDate: str  # ISO yyyy-mm-dd
+    amount: float
+
+
+class AnalyzeFacts(BaseModel):
+    """Authoritative quantitative facts the browser already fetched from Yahoo.
+
+    Optional — when present they ground the agent (yield, amount trend) instead
+    of leaving it to hallucinate. When absent the agent still runs on web signals.
+    """
+
+    companyName: Optional[str] = None
+    currency: Optional[str] = None
+    price: Optional[float] = None
+    ttmAmount: Optional[float] = None
+    trailingYield: Optional[float] = None     # %
+    forwardYield: Optional[float] = None       # %
+    forwardRate: Optional[float] = None        # annualized $/share
+    pastYearDividends: List[AnalyzeFactDividend] = Field(default_factory=list)
+
+
 class AnalyzeRequest(BaseModel):
     symbol: str
     exDate: Optional[str] = None          # ISO yyyy-mm-dd of the clicked event
@@ -21,6 +43,7 @@ class AnalyzeRequest(BaseModel):
     kind: Literal["fact", "estimate", "prediction"] = "fact"
     confidence: Optional[float] = None    # 0..1, for prediction rows
     summary: Optional[str] = None         # the calendar row's own summary text
+    facts: Optional[AnalyzeFacts] = None  # browser-supplied Yahoo ground truth
 
 
 # ---- Response ------------------------------------------------------------

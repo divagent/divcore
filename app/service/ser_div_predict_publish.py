@@ -192,8 +192,18 @@ async def predict_and_publish(
     # Layers 1 & 2 — from the frontend's facts, no re-derivation.
     facts, pattern = build_facts_and_pattern(req.facts.pastYearDividends)
 
-    # Layer 3 — research over those authoritative facts + the detected pattern.
-    research = await research_prediction(symbol, facts, pattern, trace_id=trace_id)
+    # Layer 3 — research over those authoritative facts + the detected pattern,
+    # grounded in price/yield and multi-source signals (declared, coverage, news).
+    research = await research_prediction(
+        symbol,
+        facts,
+        pattern,
+        trace_id=trace_id,
+        price=req.facts.price,
+        currency=req.currency,
+        ttm_amount=req.facts.ttmAmount,
+        company_name=req.facts.companyName,
+    )
 
     # Calendar — one event per ex-date, upserted (or preview: write nothing).
     calendar = CalendarLayer()

@@ -20,6 +20,7 @@ class FactDividend(BaseModel):
 
 
 class PredictFacts(BaseModel):
+    companyName: Optional[str] = None
     price: Optional[float] = None
     ttmAmount: Optional[float] = None
     pastYearDividends: List[FactDividend] = Field(default_factory=list)

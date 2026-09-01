@@ -13,8 +13,10 @@ with the uncertainty carried in `reasoning`.
 
 import json
 from datetime import date, datetime, timezone
+from typing import Optional
 
-from app.agent.age_tools import search_web_tool
+from app.agent.age_grounding import build_grounding
+from app.agent.age_signals import gather_dividend_signals
 from app.agent.agent_schema import DividendPrediction
 from app.llm.gemini_chat import chat_completion_agent, deployment as _MODEL_NAME
 from app.core.ai_logging import log_event
@@ -32,26 +34,36 @@ from app.schemas.sch_predict import (
 # ---------------------------------------------------------------------------
 
 RESEARCH_SYSTEM_PROMPT = (
-    "You are an elite dividend-forecasting analyst. You are given a company's "
-    "CONFIRMED dividend facts, a mechanically-detected PATTERN, and live NEWS. "
-    "The facts and pattern are authoritative — do NOT contradict them. Your job "
-    "is the forward-looking question the pattern cannot answer: will the company "
-    "KEEP paying on this pattern? Respond ONLY with a single JSON object, no prose, "
-    "matching exactly this schema:\n"
+    "You are a skeptical dividend-forecasting analyst. You are given a company's "
+    "CONFIRMED past dividends, a mechanically-detected PATTERN, verified FACTS "
+    "(price, yield, amount trend), and multi-source SIGNALS (declared filings, "
+    "fundamentals, analyst news, and retail forum chatter). The past facts and "
+    "pattern are authoritative — do NOT contradict them. Your job is the "
+    "forward-looking question the pattern cannot answer.\n\n"
+    "Work in two layers:\n"
+    "1) DECLARED CHECK: If the SIGNALS show the board has already DECLARED the next "
+    "dividend, use that exact amount and ex-date as predictedNext (this is fact, "
+    "not a guess) and set confidence high.\n"
+    "2) LEADING READ: If the next payment is NOT yet declared, decide whether the "
+    "company will keep paying on this pattern. A very high yield, payout ratio over "
+    "~100%, negative/declining free cash flow, analyst 'dividend at risk' notes, or "
+    "forum cut-chatter are RED FLAGS that should LOWER confidence and can flip the "
+    "direction to 'down'. Do NOT assume continuation just because the past was "
+    "regular — the whole point is to see a cut coming before it is announced.\n\n"
+    "Respond ONLY with a single JSON object, no prose, matching exactly this schema:\n"
     "{\n"
     '  "willMaintainPattern": boolean,\n'
     '  "confidence": number,                 // 0.0-1.0\n'
     '  "predictedNext": {\n'
-    '    "exDate": "YYYY-MM-DD"|null,         // default to the pattern\'s next projected date\n'
-    '    "amount": number|null,\n'
+    '    "exDate": "YYYY-MM-DD"|null,         // declared date if known, else the pattern\'s next\n'
+    '    "amount": number|null,               // declared amount if known, else your best estimate\n'
     '    "direction": "up"|"down"|"constant"  // vs. the most recent confirmed dividend\n'
     "  },\n"
-    '  "reasoning": string,                   // 1-3 sentences citing the evidence\n'
-    '  "sources": [ { "title": string, "url": string } ]  // ONLY urls present in NEWS\n'
+    '  "reasoning": string,                   // 2-4 sentences citing the FACTS and SIGNALS\n'
+    '  "sources": [ { "title": string, "url": string } ]  // ONLY urls present in SIGNALS\n'
     "}\n"
-    "Rules: if the company recently signaled a cut/suspension or the pattern is "
-    "irregular, LOWER the confidence and say why. Never refuse. Never invent sources; "
-    "only cite URLs that appear in the NEWS block."
+    "Rules: Prefer a declared dividend over any estimate. Never refuse. Never invent "
+    "numbers or sources; only cite URLs that appear in the SIGNALS block."
 )
 
 
@@ -82,11 +94,16 @@ async def research_prediction(
     pattern: PatternLayer,
     *,
     trace_id: str = "internal",
+    price: Optional[float] = None,
+    currency: Optional[str] = None,
+    ttm_amount: Optional[float] = None,
+    company_name: Optional[str] = None,
 ) -> ResearchLayer:
-    """Layer 3: reason over the given facts + pattern (NOT re-derived) plus live
-    web news, and return a structured, sourced forward-looking prediction. Never
-    raises — on any failure returns a LOW-confidence layer that falls back to the
-    pattern's next projected payment."""
+    """Layer 3: reason over the given facts + pattern (NOT re-derived), the
+    quantitative grounding (price/yield/trend), and multi-source signals (declared
+    filings, fundamentals, news, forums), returning a structured, sourced
+    forward-looking prediction. Never raises — on any failure returns a
+    LOW-confidence layer that falls back to the pattern's next projected payment."""
     symbol = (symbol or "").strip().upper()
     today = date.today().isoformat()
     generated_at = datetime.now(timezone.utc).isoformat()
@@ -100,17 +117,35 @@ async def research_prediction(
         else "constant",
     )
 
+    grounding = build_grounding(
+        price=price,
+        currency=currency,
+        dividends=[(d.exDate, d.amount) for d in facts.confirmed],
+        ttm_amount=ttm_amount,
+    )
+
     try:
-        news = await search_web_tool(
-            f"{symbol} dividend announcement next ex-dividend date and amount {date.today().year}"
+        target_ex = pattern.projected[0].exDate if pattern.projected else None
+        signals = await gather_dividend_signals(
+            symbol, company_name=company_name, target_ex=target_ex, trace_id=trace_id
         )
-        news_text = news.get("data") or news.get("error") or "No recent news found."
+
+        risk_hint = f"\nAutomated risk hint: {grounding.risk_hint}" if grounding.risk_hint else ""
+        declared_line = ""
+        if signals.declared:
+            dd = signals.declared
+            declared_line = (
+                f"\nDECLARED next dividend on record: {dd.get('amount')} per share, "
+                f"ex-date {dd.get('exDate')} (declared {dd.get('declarationDate') or 'n/a'}). "
+                "Use this as predictedNext — it is fact."
+            )
 
         user_content = (
-            f"Today is {today}. Company: {symbol}.\n\n"
-            f"=== CONFIRMED FACTS ===\n{_facts_text(facts)}\n\n"
+            f"Today is {today}. Company: {company_name or symbol} ({symbol}).\n\n"
+            f"=== CONFIRMED PAST DIVIDENDS ===\n{_facts_text(facts)}\n\n"
             f"=== DETECTED PATTERN ===\n{_pattern_text(pattern)}\n\n"
-            f"=== NEWS (live web) ===\n{news_text}"
+            f"=== VERIFIED FACTS (price, yield, trend) ===\n{grounding.text}{risk_hint}{declared_line}\n\n"
+            f"=== SIGNALS (declared filings, fundamentals, news, forums) ===\n{signals.text}"
         )
         raw = await chat_completion_agent(
             messages=[
@@ -131,6 +166,13 @@ async def research_prediction(
             for s in (data.get("sources") or [])
             if isinstance(s, dict) and s.get("url")
         ]
+        # Fall back to the gathered sources if the model cited none.
+        if not sources and signals.sources:
+            sources = [
+                ResearchSource(title=s.get("title", ""), url=s["url"])
+                for s in signals.sources[:4]
+                if s.get("url")
+            ]
         research = ResearchLayer(
             willMaintainPattern=bool(data.get("willMaintainPattern", True)),
             confidence=float(data.get("confidence", 0.0) or 0.0),

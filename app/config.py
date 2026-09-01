@@ -28,6 +28,7 @@ class _Settings(BaseSettings):
     ALPHAVANTAGE_API_KEY:  str = "ff"
     EOD_API_KEY:  str = "ff"
     FINNHUB_API_KEY:  str = "ff"
+    FMP_API_KEY: str = "ff"  # Financial Modeling Prep — declared dividends + payout/FCF
 
     # Google Calendar (predicted-dividend publishing) — see followup.md
     GOOGLE_OAUTH_CLIENT_ID: Optional[str] = "590057077351-seft0saimg261h13i3o8us7cpam5bkc8.apps.googleusercontent.com"
