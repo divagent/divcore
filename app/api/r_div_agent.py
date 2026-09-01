@@ -6,16 +6,28 @@ from sqlalchemy.ext.asyncio import AsyncConnection
 
 from app.core.ai_logging import log_event
 from app.db.conn.db_async import get_db
+from app.schemas.sch_analyze import AnalyzeRequest, AnalyzeResponse
 from app.schemas.sch_predict import (
     CalendarItem,
     PredictRequest,
     PredictResponse,
     UpcomingCalendarResponse,
 )
+from app.service.ser_div_analyze import analyze_dividend
 from app.service.ser_div_predict_publish import predict_and_publish
 from app.service.ser_gcal_publish import CalendarNotConfigured, list_events
 
 agentRou = APIRouter()
+
+
+@agentRou.post("/analyze_dividend", response_model=AnalyzeResponse)
+async def analyze_dividend_endpoint(req: AnalyzeRequest):
+    """Gemini agent read on a single clicked calendar event: pulls live news and
+    returns a headline, reliability label, and reasoning (payment history, cadence,
+    coverage, confidence). Never 500s — failures come back as a low-signal read."""
+    return await analyze_dividend(
+        req, trace_id=f"api:analyze:{req.symbol.strip().upper()}"
+    )
 
 
 @agentRou.post("/predict_dividend", response_model=PredictResponse)
