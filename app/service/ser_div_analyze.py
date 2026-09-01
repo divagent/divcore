@@ -16,6 +16,7 @@ model is told never to invent. Never raises — failures degrade to a low-signal
 read so the panel always shows something.
 """
 
+import asyncio
 import json
 from datetime import date, datetime, timezone
 
@@ -24,6 +25,7 @@ from app.agent.age_signals import gather_dividend_signals
 from app.core.ai_logging import log_event
 from app.llm.gemini_chat import chat_completion_agent, deployment as _MODEL_NAME
 from app.schemas.sch_analyze import AnalysisSource, AnalyzeRequest, AnalyzeResponse
+from app.service.ser_div_reconcile import reconcile_declared
 
 
 ANALYSIS_SYSTEM_PROMPT = (
@@ -95,15 +97,35 @@ async def analyze_dividend(
             symbol, company_name=company, target_ex=req.exDate, trace_id=trace_id
         )
 
+        # A declaration invalidates any forward-looking calendar row. Fire the
+        # silent correction NOW so it runs concurrently with the analysis LLM
+        # call below; we await it just before returning. Best-effort — it never
+        # raises, so it can't break the panel.
+        reconcile_task = (
+            asyncio.create_task(
+                reconcile_declared(
+                    symbol,
+                    signals.declared,
+                    note=signals.declared_note,
+                    trace_id=trace_id,
+                )
+            )
+            if signals.declared
+            else None
+        )
+
         grounding_text = grounding.text if grounding else "(no quantitative facts supplied)"
         risk_hint = grounding.risk_hint if grounding else ""
         declared_line = ""
         if signals.declared:
             dd = signals.declared
+            note = f" ({signals.declared_note})" if signals.declared_note else ""
             declared_line = (
-                f"\nA declared dividend is on record: {dd.get('amount')} per share, "
-                f"ex-date {dd.get('exDate')} (declared {dd.get('declarationDate') or 'n/a'}). "
-                "Treat this as the truth."
+                f"\nDECLARED / ANNOUNCED dividend on record: {dd.get('amount')} per share, "
+                f"ex-date {dd.get('exDate')} (declared {dd.get('declarationDate') or 'n/a'}, "
+                f"pays {dd.get('payDate') or 'n/a'}){note}. This is FACT — it OVERRIDES the "
+                f"calendar row's amount ({amount_text}) if they differ. Lead your headline "
+                "with the real declared number and say the row is stale."
             )
 
         user_content = (
@@ -143,6 +165,11 @@ async def analyze_dividend(
                 if s.get("url")
             ]
 
+        corrected = False
+        if reconcile_task is not None:
+            outcome = await reconcile_task  # already best-effort; never raises
+            corrected = bool(outcome and outcome.get("corrected"))
+
         response = AnalyzeResponse(
             symbol=symbol,
             exDate=req.exDate,
@@ -152,6 +179,7 @@ async def analyze_dividend(
             sources=sources,
             model=_MODEL_NAME,
             generatedAt=generated_at,
+            corrected=corrected,
         )
     except Exception as exc:  # never surface an error box — degrade gracefully
         log_event(

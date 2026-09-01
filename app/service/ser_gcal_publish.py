@@ -253,6 +253,29 @@ class GoogleCalendarClient:
         )
         return event
 
+    def delete_event(self, *, event_id: str, trace_id: str = "internal") -> bool:
+        """Delete one event by id. Returns True if deleted (or already gone). A
+        missing event (404/410) is treated as success — the goal is 'not present'."""
+        service = self._get_service()
+        try:
+            service.events().delete(
+                calendarId=self._calendar_id, eventId=event_id
+            ).execute()
+        except HttpError as exc:
+            if getattr(exc.resp, "status", None) in (404, 410):
+                return True
+            log_event(
+                "gcal_delete_failure",
+                trace_id=trace_id,
+                event_id=event_id,
+                severity="MEDIUM",
+                status=getattr(exc.resp, "status", None),
+                error=str(exc),
+            )
+            return False
+        log_event("gcal_delete_done", trace_id=trace_id, event_id=event_id)
+        return True
+
     def list_events(
         self, *, time_min: str, time_max: str, trace_id: str = "internal"
     ) -> list[dict]:
@@ -430,3 +453,8 @@ def list_events(*, time_min: str, time_max: str, trace_id: str = "internal") -> 
     return GoogleCalendarClient().list_events(
         time_min=time_min, time_max=time_max, trace_id=trace_id
     )
+
+
+def delete_event(*, event_id: str, trace_id: str = "internal") -> bool:
+    """Delete one event by id using credentials from settings/.env."""
+    return GoogleCalendarClient().delete_event(event_id=event_id, trace_id=trace_id)

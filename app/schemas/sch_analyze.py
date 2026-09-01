@@ -67,3 +67,7 @@ class AnalyzeResponse(BaseModel):
     sources: List[AnalysisSource] = Field(default_factory=list)
     model: Optional[str] = None
     generatedAt: Optional[str] = None
+    # True when this analysis discovered a declaration and silently corrected the
+    # public calendar (stale prediction row -> declared fact). The UI uses this to
+    # refresh the calendar so the corrected row shows immediately.
+    corrected: bool = False

@@ -21,6 +21,7 @@ from app.agent.agent_schema import DividendPrediction
 from app.llm.gemini_chat import chat_completion_agent, deployment as _MODEL_NAME
 from app.core.ai_logging import log_event
 from app.schemas.sch_predict import (
+    DeclaredDividend,
     FactsLayer,
     PatternLayer,
     PredictedNext,
@@ -134,10 +135,12 @@ async def research_prediction(
         declared_line = ""
         if signals.declared:
             dd = signals.declared
+            note = f" ({signals.declared_note})" if signals.declared_note else ""
             declared_line = (
                 f"\nDECLARED next dividend on record: {dd.get('amount')} per share, "
-                f"ex-date {dd.get('exDate')} (declared {dd.get('declarationDate') or 'n/a'}). "
-                "Use this as predictedNext — it is fact."
+                f"ex-date {dd.get('exDate')} (declared {dd.get('declarationDate') or 'n/a'}){note}. "
+                "Use this exact amount and ex-date as predictedNext with high confidence — "
+                "it is fact, not a guess. Set direction relative to the prior dividend."
             )
 
         user_content = (
@@ -173,6 +176,16 @@ async def research_prediction(
                 for s in signals.sources[:4]
                 if s.get("url")
             ]
+        declared_layer = None
+        if signals.declared:
+            dd = signals.declared
+            declared_layer = DeclaredDividend(
+                exDate=dd.get("exDate"),
+                amount=dd.get("amount"),
+                declarationDate=dd.get("declarationDate"),
+                payDate=dd.get("payDate"),
+                note=signals.declared_note,
+            )
         research = ResearchLayer(
             willMaintainPattern=bool(data.get("willMaintainPattern", True)),
             confidence=float(data.get("confidence", 0.0) or 0.0),
@@ -181,6 +194,7 @@ async def research_prediction(
             sources=sources,
             model=_MODEL_NAME,
             generatedAt=generated_at,
+            declared=declared_layer,
         )
     except Exception as exc:  # never drop the layer — degrade to the pattern.
         log_event(

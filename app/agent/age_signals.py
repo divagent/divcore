@@ -58,6 +58,7 @@ class Signals:
     text: str = "No external signals available."
     sources: list[dict] = field(default_factory=list)  # [{title, url}]
     declared: Optional[dict] = None    # {exDate, amount, declarationDate, payDate}
+    declared_note: Optional[str] = None  # e.g. "cut ~55% from 0.4184"
     payout_ratio: Optional[float] = None
     fcf_per_share: Optional[float] = None
     sentiment: Optional[str] = None    # coarse label, e.g. "bearish"/"neutral"
@@ -289,20 +290,29 @@ async def _tavily(symbol: str, company: Optional[str]) -> Optional[dict]:
         return None
     term = company or _root(symbol)
     year = date.today().year
+    # (query, include_domains) — the last one aims straight at declaration trackers
+    # and filings, where the *announced* amount/date lives verbatim.
     queries = [
-        f"{term} ({symbol}) dividend cut suspension risk sustainability payout ratio {year}",
-        f"{term} dividend declared announcement next ex-dividend date amount {year}",
-        f"{term} analyst dividend safety free cash flow guidance {year}",
+        (f"{term} ({symbol}) dividend cut suspension risk sustainability payout ratio {year}", None),
+        (f"{term} analyst dividend safety free cash flow guidance {year}", None),
+        (
+            f"{term} declares quarterly dividend per share ex-dividend record payment date {year}",
+            ["dividendhistory.org", "dividendmax.com", "nasdaq.com", "globenewswire.com",
+             "stocktitan.net", "prnewswire.com", "businesswire.com"],
+        ),
     ]
 
-    async def one(q: str) -> list[dict]:
+    async def one(q: str, domains: Optional[list[str]]) -> list[dict]:
         try:
-            res = await tavily_client.search(q, search_depth="advanced", max_results=3)
+            kw: dict[str, Any] = {"search_depth": "advanced", "max_results": 4}
+            if domains:
+                kw["include_domains"] = domains
+            res = await tavily_client.search(q, **kw)
             return res.get("results", []) or []
         except Exception:
             return []
 
-    results = await asyncio.gather(*(one(q) for q in queries))
+    results = await asyncio.gather(*(one(q, d) for q, d in queries))
     seen: dict[str, str] = {}
     lines: list[str] = []
     for bucket in results:
@@ -320,6 +330,77 @@ async def _tavily(symbol: str, company: Optional[str]) -> Optional[dict]:
         "lines": lines[:8],
         "sources": [{"title": t, "url": u} for u, t in seen.items()],
     }
+
+
+# ---------------------------------------------------------------------------
+# Declaration resolver — extract the MOST RECENT declared dividend from the
+# gathered web text. This is the fallback for symbols the structured providers
+# (FMP/Finnhub) don't cover, e.g. TSX. The retrieved snippets often contain both
+# a stale amount and the freshly-announced one; a focused extraction pass reliably
+# picks the latest declaration instead of leaving it to the analysis prompt.
+# ---------------------------------------------------------------------------
+
+_DECLARE_PROMPT = (
+    "You extract the single MOST RECENTLY DECLARED/ANNOUNCED dividend for a company "
+    "from web snippets. Snippets may contain STALE amounts from before a change — "
+    "choose the latest ANNOUNCED figure (look for words like 'declares', 'announced', "
+    "'board declared', 'resetting/cutting the dividend', SEC/press-release filings, or "
+    "a dividend tracker's 'next dividend'). Respond ONLY with a JSON object:\n"
+    "{\n"
+    '  "isDeclared": boolean,   // true only if a specific amount was actually announced\n'
+    '  "amount": number|null,   // per-share cash amount of that declared dividend\n'
+    '  "exDate": "YYYY-MM-DD"|null,\n'
+    '  "declarationDate": "YYYY-MM-DD"|null,\n'
+    '  "payDate": "YYYY-MM-DD"|null,\n'
+    '  "wasCut": boolean,       // true if it is a reduction vs. the prior dividend\n'
+    '  "priorAmount": number|null,\n'
+    '  "note": string           // <=12 words, e.g. "cut ~55% from 0.4184"\n'
+    "}\n"
+    "If no specific declared amount is present, set isDeclared=false and other fields null. "
+    "Never invent numbers not in the snippets."
+)
+
+
+async def _resolve_declared(
+    symbol: str, company: Optional[str], brief_text: str, *, trace_id: str
+) -> Optional[dict]:
+    """LLM pass over the gathered web text to pin the latest declared dividend."""
+    if not brief_text or brief_text == Signals.text:
+        return None
+    # Local import keeps the module importable without a configured LLM.
+    from app.llm.gemini_chat import chat_completion_agent
+    import json
+
+    try:
+        raw = await chat_completion_agent(
+            messages=[
+                {"role": "system", "content": _DECLARE_PROMPT},
+                {
+                    "role": "user",
+                    "content": (
+                        f"Company: {company or symbol} ({symbol}). Today: {date.today().isoformat()}.\n\n"
+                        f"SNIPPETS:\n{brief_text}"
+                    ),
+                },
+            ]
+        )
+        data = json.loads(raw)
+    except Exception as exc:
+        log_event("resolve_declared_failure", trace_id=trace_id, symbol=symbol, error=str(exc))
+        return None
+
+    if not data.get("isDeclared") or data.get("amount") is None:
+        return None
+    declared = {
+        "exDate": data.get("exDate"),
+        "amount": data.get("amount"),
+        "declarationDate": data.get("declarationDate"),
+        "payDate": data.get("payDate"),
+    }
+    note = data.get("note") or (
+        f"cut from {data.get('priorAmount')}" if data.get("wasCut") and data.get("priorAmount") else None
+    )
+    return {"declared": declared, "note": note}
 
 
 # ---------------------------------------------------------------------------
@@ -376,12 +457,21 @@ async def gather_dividend_signals(
         sig.text = "\n\n".join(text_blocks)
     sig.sources = sources
 
+    # If no structured provider gave us a declaration (e.g. TSX on FMP's free
+    # tier), extract it from the gathered web text so the agents anchor to fact.
+    if sig.declared is None:
+        resolved = await _resolve_declared(symbol, company_name, sig.text, trace_id=trace_id)
+        if resolved:
+            sig.declared = resolved["declared"]
+            sig.declared_note = resolved["note"]
+
     log_event(
         "gather_dividend_signals",
         trace_id=trace_id,
         symbol=symbol,
         providers=",".join(used) or "none",
         declared=bool(sig.declared),
+        declared_amount=(sig.declared or {}).get("amount"),
         payout_ratio=sig.payout_ratio,
         sentiment=sig.sentiment,
     )

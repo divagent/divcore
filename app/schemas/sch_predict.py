@@ -80,6 +80,14 @@ class PredictedNext(BaseModel):
     direction: Literal["up", "down", "constant"] = "constant"
 
 
+class DeclaredDividend(BaseModel):
+    exDate: Optional[str] = None
+    amount: Optional[float] = None
+    declarationDate: Optional[str] = None
+    payDate: Optional[str] = None
+    note: Optional[str] = None
+
+
 class ResearchLayer(BaseModel):
     willMaintainPattern: bool = True
     confidence: float = Field(0.0, ge=0.0, le=1.0)
@@ -88,6 +96,10 @@ class ResearchLayer(BaseModel):
     sources: List[ResearchSource] = Field(default_factory=list)
     model: Optional[str] = None
     generatedAt: Optional[str] = None
+    # Set when a board declaration was found. This is fact, not a guess — the
+    # publish step promotes it to a 'fact' calendar row and supersedes any stale
+    # prediction. Absent (None) when nothing was declared yet.
+    declared: Optional[DeclaredDividend] = None
 
 
 # ---- Response: calendar write results ------------------------------------

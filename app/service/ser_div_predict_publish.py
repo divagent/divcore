@@ -34,6 +34,7 @@ from app.schemas.sch_predict import (
     PredictResponse,
     ResearchLayer,
 )
+from app.service.ser_div_reconcile import reconcile_declared
 from app.service.ser_gcal_publish import CalendarNotConfigured, upsert_event
 
 # Precedence when several layers land on the same ex-date: prediction wins, then
@@ -210,6 +211,17 @@ async def predict_and_publish(
     if req.publishToCalendar:
         events = _plan_events(symbol, facts, pattern, research)
         calendar = await _publish_all(symbol, events, trace_id=trace_id)
+
+        # If the board has already declared, the row we just wrote is a fact, not a
+        # prediction. Reconcile AFTER publishing so the declared 'fact' overwrites
+        # the prediction on its true date and supersedes any stale-dated row.
+        if research.declared:
+            await reconcile_declared(
+                symbol,
+                research.declared.model_dump(),
+                note=research.declared.note,
+                trace_id=trace_id,
+            )
 
     await _persist_prediction(db, symbol, research, calendar, trace_id=trace_id)
 
