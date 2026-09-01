@@ -1,1 +1,0 @@
-"""Dividend MCP domain tools."""
