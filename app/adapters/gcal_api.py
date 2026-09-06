@@ -183,6 +183,10 @@ class GoogleCalendarClient:
         kind: str,
         amount: Optional[float] = None,
         confidence: Optional[float] = None,
+        forward_rate: Optional[float] = None,
+        forward_yield: Optional[float] = None,
+        price: Optional[float] = None,
+        price_as_of: Optional[str] = None,
         trace_id: str = "internal",
     ) -> dict:
         """Create or update one all-day event, idempotent by (symbol, ex_date).
@@ -198,6 +202,14 @@ class GoogleCalendarClient:
             private["amount"] = f"{amount}"
         if confidence is not None:
             private["confidence"] = f"{confidence:.4f}"
+        if forward_rate is not None:
+            private["forwardRate"] = f"{forward_rate:.4f}"
+        if forward_yield is not None:
+            private["forwardYield"] = f"{forward_yield:.4f}"
+        if price is not None:
+            private["price"] = f"{price:.4f}"
+        if price_as_of:
+            private["priceAsOf"] = price_as_of
 
         body = {
             "id": self._event_id(symbol, ex_date),
@@ -252,6 +264,43 @@ class GoogleCalendarClient:
             event_id=event.get("id"),
         )
         return event
+
+    def patch_private(
+        self,
+        *,
+        symbol: str,
+        ex_date: str,
+        updates: dict,
+        trace_id: str = "internal",
+    ) -> bool:
+        """Merge keys into one event's extendedProperties.private, in place.
+
+        Cheap write-back for the forward-yield cache: Calendar's patch merges
+        private keys individually, so we touch only `updates` and leave the
+        summary/description/amount untouched. Missing event (404) is a no-op.
+        Values are stringified (Calendar stores private props as strings).
+        """
+        event_id = self._event_id(symbol, ex_date)
+        body = {"extendedProperties": {"private": {k: str(v) for k, v in updates.items()}}}
+        service = self._get_service()
+        try:
+            service.events().patch(
+                calendarId=self._calendar_id, eventId=event_id, body=body
+            ).execute()
+        except HttpError as exc:
+            if getattr(exc.resp, "status", None) in (404, 410):
+                return False
+            log_event(
+                "gcal_patch_private_failure",
+                trace_id=trace_id,
+                symbol=symbol,
+                ex_date=ex_date,
+                severity="LOW",
+                status=getattr(exc.resp, "status", None),
+                error=str(exc),
+            )
+            return False
+        return True
 
     def delete_event(self, *, event_id: str, trace_id: str = "internal") -> bool:
         """Delete one event by id. Returns True if deleted (or already gone). A
@@ -346,6 +395,11 @@ class GoogleCalendarClient:
             "summary": ev.get("summary") or "",
             "googleEventId": ev.get("id"),
             "htmlLink": ev.get("htmlLink"),
+            # Forward-yield cache stamped by the homepage refresh / publish path.
+            "forwardRate": _num("forwardRate"),
+            "forwardYield": _num("forwardYield"),
+            "price": _num("price"),
+            "priceAsOf": priv.get("priceAsOf") or None,
         }
 
     def publish_prediction(
@@ -433,6 +487,10 @@ def upsert_event(
     kind: str,
     amount: Optional[float] = None,
     confidence: Optional[float] = None,
+    forward_rate: Optional[float] = None,
+    forward_yield: Optional[float] = None,
+    price: Optional[float] = None,
+    price_as_of: Optional[str] = None,
     trace_id: str = "internal",
 ) -> dict:
     """Upsert one labeled all-day event using credentials from settings/.env."""
@@ -444,7 +502,20 @@ def upsert_event(
         kind=kind,
         amount=amount,
         confidence=confidence,
+        forward_rate=forward_rate,
+        forward_yield=forward_yield,
+        price=price,
+        price_as_of=price_as_of,
         trace_id=trace_id,
+    )
+
+
+def patch_private(
+    *, symbol: str, ex_date: str, updates: dict, trace_id: str = "internal"
+) -> bool:
+    """Merge private-property keys into one event using settings/.env creds."""
+    return GoogleCalendarClient().patch_private(
+        symbol=symbol, ex_date=ex_date, updates=updates, trace_id=trace_id
     )
 
 

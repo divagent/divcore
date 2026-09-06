@@ -142,6 +142,13 @@ class CalendarItem(BaseModel):
     summary: str = ""
     googleEventId: Optional[str] = None
     htmlLink: Optional[str] = None
+    # Forward-yield cache (see app/adapters/yahoo_price.py). forwardYield is a
+    # percent; price/priceAsOf record the previous-close basis it was computed
+    # from, so a same-day second viewer can reuse it without re-fetching.
+    forwardRate: Optional[float] = None
+    forwardYield: Optional[float] = None
+    price: Optional[float] = None
+    priceAsOf: Optional[str] = None
 
 
 class UpcomingCalendarResponse(BaseModel):

@@ -36,6 +36,9 @@ from app.schemas.sch_predict import (
 )
 from app.service.ser_div_reconcile import reconcile_declared
 from app.adapters.gcal_api import CalendarNotConfigured, upsert_event
+from app.adapters.yahoo_price import fetch_quote, forward_rate_and_yield
+
+import httpx
 
 # Precedence when several layers land on the same ex-date: prediction wins, then
 # estimate, then fact. (Past facts and future projections rarely collide, but the
@@ -102,10 +105,11 @@ def _plan_events(
 
 
 async def _publish_all(
-    symbol: str, events: list[dict], *, trace_id: str
+    symbol: str, events: list[dict], *, forward: Optional[dict] = None, trace_id: str
 ) -> CalendarLayer:
     written: list[CalendarWrite] = []
     errors: list[str] = []
+    forward = forward or {}
 
     for ev in events:
         try:
@@ -118,6 +122,10 @@ async def _publish_all(
                 kind=ev["kind"],
                 amount=ev.get("amount"),
                 confidence=ev.get("confidence"),
+                forward_rate=forward.get("forwardRate"),
+                forward_yield=forward.get("forwardYield"),
+                price=forward.get("price"),
+                price_as_of=forward.get("priceAsOf"),
                 trace_id=trace_id,
             )
             written.append(CalendarWrite(
@@ -143,6 +151,43 @@ async def _publish_all(
             )
 
     return CalendarLayer(written=written, errors=errors)
+
+
+async def _forward_from_facts(
+    symbol: str, req: PredictRequest, *, trace_id: str
+) -> Optional[dict]:
+    """Forward yield to stamp on the published events.
+
+    Prefers the frontend's authoritative price (the latest) + trailing dividends;
+    priceAsOf is today. If no price was sent, fall back to Yahoo's previous close.
+    Best-effort — returns None if nothing usable is available.
+    """
+    divs = [(d.exDate, d.amount) for d in req.facts.pastYearDividends]
+
+    price = req.facts.price
+    price_as_of = date.today().isoformat()
+    if not price or price <= 0 or not divs:
+        # facts.price was empty (frontend couldn't reach Yahoo). Fall back to
+        # Yahoo's latest price server-side — same "current price, else last close"
+        # meaning — so priceAsOf stays today.
+        async with httpx.AsyncClient(timeout=8.0) as client:
+            quote = await fetch_quote(client, symbol, trace_id=trace_id)
+        if quote is None:
+            return None
+        if not price or price <= 0:
+            price = quote.latest_price
+        if not divs:
+            divs = quote.dividends
+
+    forward_rate, forward_yield = forward_rate_and_yield(divs, price)
+    if forward_yield is None:
+        return None
+    return {
+        "forwardRate": forward_rate,
+        "forwardYield": forward_yield,
+        "price": round(float(price), 4) if price is not None else None,
+        "priceAsOf": price_as_of,
+    }
 
 
 async def _persist_prediction(
@@ -210,7 +255,8 @@ async def predict_and_publish(
     calendar = CalendarLayer()
     if req.publishToCalendar:
         events = _plan_events(symbol, facts, pattern, research)
-        calendar = await _publish_all(symbol, events, trace_id=trace_id)
+        forward = await _forward_from_facts(symbol, req, trace_id=trace_id)
+        calendar = await _publish_all(symbol, events, forward=forward, trace_id=trace_id)
 
         # If the board has already declared, the row we just wrote is a fact, not a
         # prediction. Reconcile AFTER publishing so the declared 'fact' overwrites

@@ -26,6 +26,7 @@ from app.schemas.sch_predict import (
 )
 from app.service.ser_div_analyze import analyze_dividend
 from app.service.ser_div_predict_publish import predict_and_publish
+from app.service.ser_forward_rate import enrich_forward_rates
 from app.adapters import gcal_mcp
 from app.adapters.gcal_api import CalendarNotConfigured, list_events
 
@@ -114,6 +115,10 @@ async def calendar_upcoming_endpoint(
             time_max=end.isoformat(),
             trace_id=trace_id,
         )
+        # Forward yield (vs. the latest price — live, or last close when the
+        # market's shut) is stamped on each event and cached per-day: the first
+        # viewer of the day fetches + writes it back, later viewers reuse it.
+        raw = await enrich_forward_rates(raw, trace_id=trace_id)
         items = [CalendarItem(**item) for item in raw]
         return UpcomingCalendarResponse(
             startDate=start.isoformat(), endDate=end.isoformat(), items=items
