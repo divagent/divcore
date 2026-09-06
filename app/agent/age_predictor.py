@@ -18,7 +18,7 @@ from typing import Optional
 from app.agent.age_grounding import build_grounding
 from app.agent.age_signals import gather_dividend_signals
 from app.agent.agent_schema import DividendPrediction
-from app.llm.gemini_chat import chat_completion_agent, deployment as _MODEL_NAME
+from app.adapters.gemini_chat import chat_completion_agent, deployment as _MODEL_NAME
 from app.core.ai_logging import log_event
 from app.schemas.sch_predict import (
     DeclaredDividend,

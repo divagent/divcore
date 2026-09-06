@@ -1,3 +1,14 @@
+"""All live HTTP endpoints for the dividend app, in one router.
+
+Two groups, same router:
+  - show     : Postgres reads (only /div_show/list is live today)
+  - workflow : the Gemini-backed analyze / predict / calendar endpoints
+               (labelled "Agent" historically — it is a workflow, not an agent)
+
+Paths are kept identical to the old r_div_show / r_div_agent split so nothing
+calling the API needs to change.
+"""
+
 import asyncio
 from datetime import date, timedelta
 
@@ -15,12 +26,50 @@ from app.schemas.sch_predict import (
 )
 from app.service.ser_div_analyze import analyze_dividend
 from app.service.ser_div_predict_publish import predict_and_publish
-from app.service.ser_gcal_publish import CalendarNotConfigured, list_events
+from app.adapters import gcal_mcp
+from app.adapters.gcal_api import CalendarNotConfigured, list_events
 
-agentRou = APIRouter()
+divRou = APIRouter()
 
 
-@agentRou.post("/analyze_dividend", response_model=AnalyzeResponse)
+# --------------------------------------------------------------------------- #
+# show — Postgres reads
+# --------------------------------------------------------------------------- #
+@divRou.get("/div_show/list", tags=["show Calendar"])
+async def list_divs(
+    back: int = Query(365, ge=0, le=3650, description="Days before today to include"),
+    ahead: int = Query(365, ge=0, le=3650, description="Days after today to include"),
+):
+    """List this app's dividend calendar events over a window around today.
+
+    Data source is the Google Calendar MCP adapter (calendar is the source of
+    truth), not Postgres. Defaults to +/- one year; override with `back`/`ahead`.
+    Never 500s — a missing/failed calendar comes back as an empty list.
+    """
+    today = date.today()
+    start = today - timedelta(days=back)
+    end = today + timedelta(days=ahead)
+    trace_id = f"api:div_show_list:{back}:{ahead}"
+
+    try:
+        return await gcal_mcp.list_events(
+            time_min=start.isoformat(),
+            time_max=end.isoformat(),
+            trace_id=trace_id,
+        )
+    except CalendarNotConfigured:
+        return []
+    except Exception as exc:  # never let the list crash the page
+        log_event(
+            "div_show_list_failure", trace_id=trace_id, severity="HIGH", error=str(exc)
+        )
+        return []
+
+
+# --------------------------------------------------------------------------- #
+# workflow — Gemini analyze / predict / calendar
+# --------------------------------------------------------------------------- #
+@divRou.post("/div_agent/analyze_dividend", response_model=AnalyzeResponse, tags=["Agent"])
 async def analyze_dividend_endpoint(req: AnalyzeRequest):
     """Gemini agent read on a single clicked calendar event: pulls live news and
     returns a headline, reliability label, and reasoning (payment history, cadence,
@@ -30,7 +79,7 @@ async def analyze_dividend_endpoint(req: AnalyzeRequest):
     )
 
 
-@agentRou.post("/predict_dividend", response_model=PredictResponse)
+@divRou.post("/div_agent/predict_dividend", response_model=PredictResponse, tags=["Agent"])
 async def predict_dividend_endpoint(
     req: PredictRequest,
     db: AsyncConnection = Depends(get_db),
@@ -47,7 +96,7 @@ async def predict_dividend_endpoint(
     )
 
 
-@agentRou.get("/calendar_upcoming", response_model=UpcomingCalendarResponse)
+@divRou.get("/div_agent/calendar_upcoming", response_model=UpcomingCalendarResponse, tags=["Agent"])
 async def calendar_upcoming_endpoint(
     days: int = Query(30, ge=1, le=365, description="Window length in days from today"),
 ):

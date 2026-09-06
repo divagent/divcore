@@ -1,13 +1,11 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter
 from fastapi.responses import RedirectResponse
 
-from app.api.r_div_show import divRou
-from app.api.r_div_agent import agentRou
+from app.api.r_div import divRou
 
 rou = APIRouter()
 
-rou.include_router(divRou, prefix="/div_show", tags=["show PG"])
-rou.include_router(agentRou, prefix="/div_agent", tags=["Agent"])
+rou.include_router(divRou)
 
 
 @rou.get("/")

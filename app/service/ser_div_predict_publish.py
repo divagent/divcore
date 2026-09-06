@@ -35,7 +35,7 @@ from app.schemas.sch_predict import (
     ResearchLayer,
 )
 from app.service.ser_div_reconcile import reconcile_declared
-from app.service.ser_gcal_publish import CalendarNotConfigured, upsert_event
+from app.adapters.gcal_api import CalendarNotConfigured, upsert_event
 
 # Precedence when several layers land on the same ex-date: prediction wins, then
 # estimate, then fact. (Past facts and future projections rarely collide, but the

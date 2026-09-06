@@ -521,7 +521,7 @@ async def _resolve_declared(
     if not brief_text or brief_text == Signals.text:
         return None
     # Local import keeps the module importable without a configured LLM.
-    from app.llm.gemini_chat import chat_completion_agent
+    from app.adapters.gemini_chat import chat_completion_agent
     import json
 
     try:

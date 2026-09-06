@@ -1,6 +1,6 @@
 from google.genai import types
 
-from app.llm.gemini import DEFAULT_GEMINI_MODEL, get_gemini_client
+from app.adapters.gemini import DEFAULT_GEMINI_MODEL, get_gemini_client
 
 
 # Original Azure/OpenAI setup kept for reference:

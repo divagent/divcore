@@ -16,6 +16,7 @@ dependencies = [
     # "langchain-azure-ai>=1.0.0",
     # "langchain-openai>=1.1.7",
     # "openai>=2.16.0",
+    "mcp>=2.1.1",
     "pandas>=3.0.0",
     "pgvector>=0.4.2",
     "psycopg2-binary>=2.9.11",

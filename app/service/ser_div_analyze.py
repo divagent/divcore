@@ -23,7 +23,7 @@ from datetime import date, datetime, timezone
 from app.agent.age_grounding import build_grounding
 from app.agent.age_signals import gather_dividend_signals
 from app.core.ai_logging import log_event
-from app.llm.gemini_chat import chat_completion_agent, deployment as _MODEL_NAME
+from app.adapters.gemini_chat import chat_completion_agent, deployment as _MODEL_NAME
 from app.schemas.sch_analyze import AnalysisSource, AnalyzeRequest, AnalyzeResponse
 from app.service.ser_div_reconcile import reconcile_declared
 

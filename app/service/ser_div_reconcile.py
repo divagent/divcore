@@ -23,7 +23,7 @@ from datetime import date, timedelta
 from typing import Optional
 
 from app.core.ai_logging import log_event
-from app.service.ser_gcal_publish import (
+from app.adapters.gcal_api import (
     CalendarNotConfigured,
     delete_event,
     list_events,
