@@ -521,11 +521,12 @@ async def _resolve_declared(
     if not brief_text or brief_text == Signals.text:
         return None
     # Local import keeps the module importable without a configured LLM.
-    from app.adapters.gemini_chat import chat_completion_agent
+    from app.adapters.gemini_chat import chat_completion_agent_with_model
     import json
 
+    model_label = "unavailable"
     try:
-        raw = await chat_completion_agent(
+        raw, model_label = await chat_completion_agent_with_model(
             messages=[
                 {"role": "system", "content": _DECLARE_PROMPT},
                 {
@@ -539,7 +540,13 @@ async def _resolve_declared(
         )
         data = json.loads(raw)
     except Exception as exc:
-        log_event("resolve_declared_failure", trace_id=trace_id, symbol=symbol, error=str(exc))
+        log_event(
+            "resolve_declared_failure",
+            trace_id=trace_id,
+            symbol=symbol,
+            model=model_label,
+            error=str(exc),
+        )
         return None
 
     if not data.get("isDeclared") or data.get("amount") is None:

@@ -23,7 +23,7 @@ from datetime import date, datetime, timezone
 from app.agent.age_grounding import build_grounding
 from app.agent.age_signals import gather_dividend_signals
 from app.core.ai_logging import log_event
-from app.adapters.gemini_chat import chat_completion_agent, deployment as _MODEL_NAME
+from app.adapters.gemini_chat import chat_completion_agent_with_model
 from app.schemas.sch_analyze import AnalysisSource, AnalyzeRequest, AnalyzeResponse
 from app.service.ser_div_reconcile import reconcile_declared
 
@@ -78,6 +78,10 @@ async def analyze_dividend(
 
     amount_text = f"{req.amount:.4f}".rstrip("0").rstrip(".") if req.amount is not None else "TBD"
     conf_text = f"{round(req.confidence * 100)}%" if req.confidence is not None else "n/a"
+
+    # Which model actually produced the read (set once the LLM call returns); stays
+    # "unavailable" if we fail before reaching the model. Rotation picks it per call.
+    model_label = "unavailable"
 
     # Quantitative grounding from the browser's Yahoo facts (yield + amount trend).
     grounding = None
@@ -144,7 +148,7 @@ async def analyze_dividend(
             f"=== SIGNALS (declared filings, fundamentals, news, forums) ===\n{signals.text}"
         )
 
-        raw = await chat_completion_agent(
+        raw, model_label = await chat_completion_agent_with_model(
             messages=[
                 {"role": "system", "content": ANALYSIS_SYSTEM_PROMPT},
                 {"role": "user", "content": user_content},
@@ -178,7 +182,7 @@ async def analyze_dividend(
             reasoning=str(data.get("reasoning", "") or ""),
             riskLabel=risk if risk in _RISK else "unknown",
             sources=sources,
-            model=_MODEL_NAME,
+            model=model_label,
             generatedAt=generated_at,
             corrected=corrected,
         )
@@ -188,6 +192,7 @@ async def analyze_dividend(
             trace_id=trace_id,
             symbol=symbol,
             severity="HIGH",
+            model=model_label,
             error=str(exc),
         )
         response = AnalyzeResponse(
@@ -195,12 +200,12 @@ async def analyze_dividend(
             exDate=req.exDate,
             headline=f"Could not complete live analysis for {symbol}.",
             reasoning=(
-                "The agent could not gather signals or parse a structured read for "
-                "this event just now. Try again in a moment."
+                f"The agent (model: {model_label}) could not gather signals or parse "
+                "a structured read for this event just now. Try again in a moment."
             ),
             riskLabel="unknown",
             sources=[],
-            model=_MODEL_NAME,
+            model=model_label,
             generatedAt=generated_at,
         )
 
@@ -208,6 +213,7 @@ async def analyze_dividend(
         "analyze_dividend_done",
         trace_id=trace_id,
         symbol=symbol,
+        model=model_label,
         risk=response.riskLabel,
     )
     return response

@@ -18,6 +18,19 @@ class _Settings(BaseSettings):
     
     GEMINI_API_KEY: Optional[str] = None
     GEMINI_API_KEY_OPHIR: Optional[str] = None
+
+    # Groq — free, fast, OpenAI-compatible. No key => Groq models are skipped.
+    GROQ_API_KEY: Optional[str] = None
+    GROQ_MODEL_ID: str = "llama-3.3-70b-versatile"
+    # The AI model rotation ring (hard round-robin). Every LLM call uses the NEXT
+    # model and advances one shared global cursor, so consecutive calls never hit
+    # the same model. Extend this list (to any length) to add models. Each entry is
+    # "provider:model_id"; supported providers: "gemini", "groq". A model whose
+    # provider has no API key is skipped.
+    AI_ROTATION_MODELS: List[str] = [
+        "groq:llama-3.3-70b-versatile",
+        "gemini:gemini-3.6-flash",
+    ]
     # Original OpenAI/Azure settings kept for reference:
     # OPENAI_API_KEY: Optional[str] = None
     # AZURE_OPENAI_API_KEY: Optional[str] = None

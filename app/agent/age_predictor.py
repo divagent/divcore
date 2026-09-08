@@ -18,7 +18,7 @@ from typing import Optional
 from app.agent.age_grounding import build_grounding
 from app.agent.age_signals import gather_dividend_signals
 from app.agent.agent_schema import DividendPrediction
-from app.adapters.gemini_chat import chat_completion_agent, deployment as _MODEL_NAME
+from app.adapters.gemini_chat import chat_completion_agent_with_model
 from app.core.ai_logging import log_event
 from app.schemas.sch_predict import (
     DeclaredDividend,
@@ -109,6 +109,10 @@ async def research_prediction(
     today = date.today().isoformat()
     generated_at = datetime.now(timezone.utc).isoformat()
 
+    # Which model actually produced the prediction (set once the LLM call returns);
+    # stays "unavailable" if we degrade before reaching the model.
+    model_label = "unavailable"
+
     # A sensible default that never contradicts the pattern.
     default_next = PredictedNext(
         exDate=pattern.projected[0].exDate if pattern.projected else None,
@@ -150,7 +154,7 @@ async def research_prediction(
             f"=== VERIFIED FACTS (price, yield, trend) ===\n{grounding.text}{risk_hint}{declared_line}\n\n"
             f"=== SIGNALS (declared filings, fundamentals, news, forums) ===\n{signals.text}"
         )
-        raw = await chat_completion_agent(
+        raw, model_label = await chat_completion_agent_with_model(
             messages=[
                 {"role": "system", "content": RESEARCH_SYSTEM_PROMPT},
                 {"role": "user", "content": user_content},
@@ -192,7 +196,7 @@ async def research_prediction(
             predictedNext=predicted_next,
             reasoning=str(data.get("reasoning", "") or ""),
             sources=sources,
-            model=_MODEL_NAME,
+            model=model_label,
             generatedAt=generated_at,
             declared=declared_layer,
         )
@@ -202,6 +206,7 @@ async def research_prediction(
             trace_id=trace_id,
             symbol=symbol,
             severity="HIGH",
+            model=model_label,
             error=str(exc),
         )
         research = ResearchLayer(
@@ -209,11 +214,12 @@ async def research_prediction(
             confidence=0.0,
             predictedNext=default_next,
             reasoning=(
-                "Could not complete web research; falling back to the detected "
-                "pattern as a LOW-confidence prediction rather than dropping it."
+                f"Could not complete web research (model: {model_label}); falling back "
+                "to the detected pattern as a LOW-confidence prediction rather than "
+                "dropping it."
             ),
             sources=[],
-            model=_MODEL_NAME,
+            model=model_label,
             generatedAt=generated_at,
         )
 
@@ -221,6 +227,7 @@ async def research_prediction(
         "research_prediction_done",
         trace_id=trace_id,
         symbol=symbol,
+        model=model_label,
         confidence=research.confidence,
         will_maintain=research.willMaintainPattern,
     )
