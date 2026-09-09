@@ -25,7 +25,7 @@ from app.schemas.sch_predict import (
     PredictResponse,
     UpcomingCalendarResponse,
 )
-from app.schemas.sch_trade import TradeListResponse, TradeRow, TradeUpdate
+from app.schemas.sch_trade import TradeInsert, TradeListResponse, TradeRow, TradeUpdate
 from app.service.ser_div_analyze import analyze_dividend
 from app.service.ser_div_predict_publish import predict_and_publish
 from app.service.ser_forward_rate import enrich_forward_rates
@@ -89,6 +89,37 @@ async def list_trades(
         return TradeListResponse(items=[])
 
 
+@divRou.post("/div_trade/insert", response_model=TradeRow, tags=["Trades"])
+async def insert_trade(
+    body: TradeInsert,
+    db: AsyncConnection = Depends(get_db),
+):
+    """Add a calendar tick to `div_cal_trade` so it appears in the Trades tab,
+    seeding the tick-owned columns from the calendar event. Idempotent on
+    `(symbol, ex_date)` — an existing row (and any trade entries on it) is left
+    untouched and returned as-is. 400 if the ex-date is missing/unparseable."""
+    symbol = body.symbol.strip().upper()
+    trace_id = f"api:div_trade_insert:{symbol}"
+    try:
+        row = await DivCalTradeRepo(db).insert_tick(
+            symbol=symbol,
+            ex_date=body.exDate,
+            amount=body.amount,
+            confidence=body.confidence,
+            company_name=body.companyName,
+            google_event_id=body.googleEventId,
+        )
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid ex-date; expected yyyy-mm-dd.")
+    except Exception as exc:
+        log_event("div_trade_insert_failure", trace_id=trace_id, severity="HIGH", error=str(exc))
+        raise HTTPException(status_code=500, detail="Failed to add trade row.")
+
+    if row is None:
+        raise HTTPException(status_code=400, detail="An ex-date is required to add a trade.")
+    return TradeRow.from_row(row)
+
+
 @divRou.patch("/div_trade/{trade_id}", response_model=TradeRow, tags=["Trades"])
 async def update_trade(
     trade_id: str,
@@ -131,10 +162,7 @@ async def analyze_dividend_endpoint(req: AnalyzeRequest):
 
 
 @divRou.post("/div_agent/predict_dividend", response_model=PredictResponse, tags=["Agent"])
-async def predict_dividend_endpoint(
-    req: PredictRequest,
-    db: AsyncConnection = Depends(get_db),
-):
+async def predict_dividend_endpoint(req: PredictRequest):
     """Analyze a dividend from the frontend's authoritative facts and return all
     three labeled layers (facts / pattern / research), optionally publishing one
     idempotent all-day event per ex-date to the public Google Calendar.
@@ -142,9 +170,7 @@ async def predict_dividend_endpoint(
     The facts in the body are authoritative — the backend echoes them verbatim and
     never re-fetches them. See src/data/ai-query.contract.md in the frontend repo.
     """
-    return await predict_and_publish(
-        req, db, trace_id=f"api:{req.symbol.strip().upper()}"
-    )
+    return await predict_and_publish(req, trace_id=f"api:{req.symbol.strip().upper()}")
 
 
 @divRou.get("/div_agent/calendar_upcoming", response_model=UpcomingCalendarResponse, tags=["Agent"])

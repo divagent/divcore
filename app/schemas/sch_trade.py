@@ -76,6 +76,17 @@ class TradeListResponse(BaseModel):
     items: List[TradeRow] = Field(default_factory=list)
 
 
+class TradeInsert(BaseModel):
+    """Body for adding a calendar tick to the Trades tab. Carries as much as the
+    calendar event has; the trade-log fields start empty for the user to fill in."""
+    symbol: str
+    exDate: str
+    amount: Optional[float] = None
+    confidence: Optional[float] = None
+    companyName: Optional[str] = None
+    googleEventId: Optional[str] = None
+
+
 class TradeUpdate(BaseModel):
     """PATCH body — every field optional; only the ones sent are changed.
 

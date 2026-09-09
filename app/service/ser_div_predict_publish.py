@@ -10,21 +10,17 @@ Contract: `src/data/ai-query.contract.md` (frontend repo). One call, three layer
 
 `publishToCalendar=False` computes all three layers and writes nothing (preview).
 Calendar writes are best-effort: a failure is captured in `calendar.errors` and
-never aborts the response. The layer-3 prediction is also persisted (best-effort)
-into `dividend_predictions` for continuity with the old flow.
+never aborts the response. Postgres is not touched here — `div_cal_trade` rows are
+created only when the user adds a tick to the Trades tab (POST /div_trade/insert).
 """
 
 import asyncio
 from datetime import date
 from typing import Optional
 
-from sqlalchemy.ext.asyncio import AsyncConnection
-
 from app.agent.age_pattern import build_facts_and_pattern
 from app.agent.age_predictor import research_prediction
-from app.agent.agent_schema import DividendPrediction
 from app.core.ai_logging import log_event
-from app.db.repo.repo_div_cal_trade import DivCalTradeRepo
 from app.schemas.sch_predict import (
     CalendarLayer,
     CalendarWrite,
@@ -190,45 +186,14 @@ async def _forward_from_facts(
     }
 
 
-async def _persist_prediction(
-    db: AsyncConnection,
-    symbol: str,
-    research: ResearchLayer,
-    calendar: CalendarLayer,
-    *,
-    trace_id: str,
-) -> None:
-    """Best-effort upsert of the layer-3 prediction into dividend_predictions."""
-    nxt = research.predictedNext
-    google_event_id = next(
-        (w.googleEventId for w in calendar.written
-         if w.kind == "prediction" and w.exDate == nxt.exDate),
-        None,
-    )
-    prediction = DividendPrediction(
-        symbol=symbol,
-        predicted_amount=nxt.amount,
-        predicted_ex_date=nxt.exDate,
-        direction=nxt.direction,
-        confidence=research.confidence,
-        reasoning=research.reasoning,
-        sources=[s.url for s in research.sources],
-    )
-    try:
-        repo = DivCalTradeRepo(db)
-        await repo.upsert_prediction(prediction, google_event_id=google_event_id)
-    except Exception as exc:  # persistence is not on the critical path
-        log_event(
-            "predict_persist_failure",
-            trace_id=trace_id, symbol=symbol, severity="MEDIUM", error=str(exc),
-        )
-
-
 async def predict_and_publish(
-    req: PredictRequest, db: AsyncConnection, *, trace_id: str = "internal"
+    req: PredictRequest, *, trace_id: str = "internal"
 ) -> PredictResponse:
     """Compute all three layers from the request's authoritative facts, optionally
-    publish, persist the prediction, and return the full labeled response."""
+    publish to the calendar, and return the full labeled response.
+
+    Nothing is written to Postgres here — `div_cal_trade` rows are created only when
+    the user adds a tick to the Trades tab (POST /div_trade/insert)."""
     symbol = req.symbol.strip().upper()
     as_of = req.asOf or date.today().isoformat()
 
@@ -269,8 +234,6 @@ async def predict_and_publish(
                 fallback_ex_date=research.predictedNext.exDate,
                 trace_id=trace_id,
             )
-
-    await _persist_prediction(db, symbol, research, calendar, trace_id=trace_id)
 
     log_event("predict_publish_done", trace_id=trace_id, symbol=symbol,
               written=len(calendar.written), errors=len(calendar.errors))
