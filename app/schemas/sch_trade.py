@@ -25,6 +25,8 @@ class TradeRow(BaseModel):
     name: Optional[str] = None
     # Firmness of the underlying tick (from the calendar): Confirmed vs Prediction.
     divstatus: Optional[str] = None
+    # The tick's dividend amount (per share) carried from the calendar event.
+    amount: Optional[float] = None
     exDate: Optional[str] = None
     paymentDate: Optional[str] = None
     quantity: Optional[int] = None
@@ -63,6 +65,7 @@ class TradeRow(BaseModel):
             ticker=row.get("ticker") or "",
             name=row.get("company_name"),
             divstatus=row.get("divstatus"),
+            amount=_f(row.get("amount")),
             exDate=_iso(row.get("ex_date")),
             paymentDate=_iso(row.get("payment_date")),
             quantity=int(row["quantity"]) if row.get("quantity") is not None else None,
