@@ -131,10 +131,10 @@ def _parse_chart(ticker: str, payload: dict) -> Optional[YahooQuote]:
 
 
 async def fetch_quote(
-    client: httpx.AsyncClient, symbol: str, *, trace_id: str = "internal"
+    client: httpx.AsyncClient, ticker: str, *, trace_id: str = "internal"
 ) -> Optional[YahooQuote]:
-    """Fetch one symbol's price + trailing dividends. Returns None on any failure."""
-    base = (symbol or "").strip().upper()
+    """Fetch one ticker's price + trailing dividends. Returns None on any failure."""
+    base = (ticker or "").strip().upper()
     if not base:
         return None
     try:
@@ -150,7 +150,7 @@ async def fetch_quote(
         log_event(
             "yahoo_price_fetch_failure",
             trace_id=trace_id,
-            symbol=base,
+            ticker=base,
             severity="LOW",
             error=str(exc),
         )
@@ -158,9 +158,9 @@ async def fetch_quote(
 
 
 async def forward_yield_latest(
-    client: httpx.AsyncClient, symbol: str, *, trace_id: str = "internal"
+    client: httpx.AsyncClient, ticker: str, *, trace_id: str = "internal"
 ) -> Optional[dict]:
-    """Forward-yield cache payload for one symbol, priced at the LATEST price.
+    """Forward-yield cache payload for one ticker, priced at the LATEST price.
 
     Uses `regularMarketPrice` (live when the market's open, else the last close —
     the same basis as the frontend's `facts.price`), so priceAsOf is today.
@@ -169,7 +169,7 @@ async def forward_yield_latest(
     """
     from datetime import date
 
-    quote = await fetch_quote(client, symbol, trace_id=trace_id)
+    quote = await fetch_quote(client, ticker, trace_id=trace_id)
     if quote is None or quote.latest_price is None:
         return None
     forward_rate, forward_yield = forward_rate_and_yield(quote.dividends, quote.latest_price)

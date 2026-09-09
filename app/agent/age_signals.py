@@ -45,9 +45,9 @@ def _has(key: Optional[str]) -> bool:
     return bool(key) and str(key).strip().lower() not in _PLACEHOLDERS
 
 
-def _root(symbol: str) -> str:
+def _root(ticker: str) -> str:
     """"T.TO" -> "T"; "BRK.B" -> "BRK.B" (only strips known exchange suffixes)."""
-    base = (symbol or "").strip().upper()
+    base = (ticker or "").strip().upper()
     parts = base.split(".")
     if len(parts) == 2 and parts[1] in _EXCH_SUFFIXES:
         return parts[0]
@@ -100,7 +100,7 @@ def _d(iso: str) -> date:
     return date.fromisoformat(iso[:10])
 
 
-async def _fmp(client: httpx.AsyncClient, symbol: str, target_ex: Optional[str]) -> Optional[dict]:
+async def _fmp(client: httpx.AsyncClient, ticker: str, target_ex: Optional[str]) -> Optional[dict]:
     if not _has(settings.FMP_API_KEY):
         return None
     key = settings.FMP_API_KEY
@@ -110,7 +110,7 @@ async def _fmp(client: httpx.AsyncClient, symbol: str, target_ex: Optional[str])
 
     try:
         r = await client.get(
-            f"{base}/historical-price-full/stock_dividend/{symbol}",
+            f"{base}/historical-price-full/stock_dividend/{ticker}",
             params={"apikey": key},
         )
         if r.status_code == 200:
@@ -126,7 +126,7 @@ async def _fmp(client: httpx.AsyncClient, symbol: str, target_ex: Optional[str])
         pass
 
     try:
-        r = await client.get(f"{base}/ratios-ttm/{symbol}", params={"apikey": key})
+        r = await client.get(f"{base}/ratios-ttm/{ticker}", params={"apikey": key})
         data = r.json() if r.status_code == 200 else None
         if isinstance(data, list) and data:
             pr = data[0].get("payoutRatioTTM")
@@ -145,7 +145,7 @@ async def _fmp(client: httpx.AsyncClient, symbol: str, target_ex: Optional[str])
         pass
 
     try:
-        r = await client.get(f"{base}/key-metrics-ttm/{symbol}", params={"apikey": key})
+        r = await client.get(f"{base}/key-metrics-ttm/{ticker}", params={"apikey": key})
         data = r.json() if r.status_code == 200 else None
         if isinstance(data, list) and data:
             fcf = data[0].get("freeCashFlowPerShareTTM")
@@ -166,7 +166,7 @@ async def _fmp(client: httpx.AsyncClient, symbol: str, target_ex: Optional[str])
 # ---------------------------------------------------------------------------
 
 
-async def _finnhub(client: httpx.AsyncClient, symbol: str) -> Optional[dict]:
+async def _finnhub(client: httpx.AsyncClient, ticker: str) -> Optional[dict]:
     if not _has(settings.FINNHUB_API_KEY):
         return None
     key = settings.FINNHUB_API_KEY
@@ -180,7 +180,7 @@ async def _finnhub(client: httpx.AsyncClient, symbol: str) -> Optional[dict]:
         r = await client.get(
             f"{base}/company-news",
             params={
-                "symbol": symbol,
+                "symbol": ticker,
                 "from": (today - timedelta(days=120)).isoformat(),
                 "to": today.isoformat(),
                 "token": key,
@@ -202,7 +202,7 @@ async def _finnhub(client: httpx.AsyncClient, symbol: str) -> Optional[dict]:
     try:
         r = await client.get(
             f"{base}/stock/metric",
-            params={"symbol": symbol, "metric": "all", "token": key},
+            params={"symbol": ticker, "metric": "all", "token": key},
         )
         if r.status_code == 200:
             m = (r.json() or {}).get("metric", {}) or {}
@@ -227,7 +227,7 @@ async def _finnhub(client: httpx.AsyncClient, symbol: str) -> Optional[dict]:
 # ---------------------------------------------------------------------------
 
 
-async def _alpha(client: httpx.AsyncClient, symbol: str) -> Optional[dict]:
+async def _alpha(client: httpx.AsyncClient, ticker: str) -> Optional[dict]:
     if not _has(settings.ALPHAVANTAGE_API_KEY):
         return None
     key = settings.ALPHAVANTAGE_API_KEY
@@ -240,7 +240,7 @@ async def _alpha(client: httpx.AsyncClient, symbol: str) -> Optional[dict]:
             "https://www.alphavantage.co/query",
             params={
                 "function": "NEWS_SENTIMENT",
-                "tickers": symbol,
+                "tickers": ticker,
                 "sort": "LATEST",
                 "limit": "20",
                 "apikey": key,
@@ -256,7 +256,7 @@ async def _alpha(client: httpx.AsyncClient, symbol: str) -> Optional[dict]:
             label = item.get("overall_sentiment_label")
             # Prefer this ticker's own sentiment score when present.
             for ts in item.get("ticker_sentiment", []) or []:
-                if str(ts.get("ticker", "")).upper().endswith(_root(symbol)):
+                if str(ts.get("ticker", "")).upper().endswith(_root(ticker)):
                     try:
                         scores.append(float(ts.get("ticker_sentiment_score")))
                     except (TypeError, ValueError):
@@ -286,15 +286,15 @@ async def _alpha(client: httpx.AsyncClient, symbol: str) -> Optional[dict]:
 # ---------------------------------------------------------------------------
 
 
-async def _tavily(symbol: str, company: Optional[str]) -> Optional[dict]:
+async def _tavily(ticker: str, company: Optional[str]) -> Optional[dict]:
     if not _has(settings.TAVILY_API_KEY):
         return None
-    term = company or _root(symbol)
+    term = company or _root(ticker)
     year = date.today().year
     # (query, include_domains) — the last one aims straight at declaration trackers
     # and filings, where the *announced* amount/date lives verbatim.
     queries = [
-        (f"{term} ({symbol}) dividend cut suspension risk sustainability payout ratio {year}", None),
+        (f"{term} ({ticker}) dividend cut suspension risk sustainability payout ratio {year}", None),
         (f"{term} analyst dividend safety free cash flow guidance {year}", None),
         (
             f"{term} declares quarterly dividend per share ex-dividend record payment date {year}",
@@ -347,8 +347,8 @@ def _strip_cdata(s: str) -> str:
     return re.sub(r"<!\[CDATA\[|\]\]>", "", s or "").strip()
 
 
-async def _yahoo_news(client: httpx.AsyncClient, symbol: str) -> Optional[dict]:
-    base = (symbol or "").strip().upper()
+async def _yahoo_news(client: httpx.AsyncClient, ticker: str) -> Optional[dict]:
+    base = (ticker or "").strip().upper()
     try:
         r = await client.get(
             "https://feeds.finance.yahoo.com/rss/2.0/headline",
@@ -433,9 +433,9 @@ def _parse_dividend_history(html: str) -> Optional[dict]:
     return None
 
 
-async def _dividend_tracker(client: httpx.AsyncClient, symbol: str) -> Optional[dict]:
+async def _dividend_tracker(client: httpx.AsyncClient, ticker: str) -> Optional[dict]:
     """Fetch dividendhistory.org and parse the declared dividend deterministically."""
-    base = (symbol or "").strip().upper()
+    base = (ticker or "").strip().upper()
     root = _root(base)
     parts = base.split(".")
     suffix = parts[1] if len(parts) == 2 else None
@@ -515,7 +515,7 @@ _DECLARE_PROMPT = (
 
 
 async def _resolve_declared(
-    symbol: str, company: Optional[str], brief_text: str, *, trace_id: str
+    ticker: str, company: Optional[str], brief_text: str, *, trace_id: str
 ) -> Optional[dict]:
     """LLM pass over the gathered web text to pin the latest declared dividend."""
     if not brief_text or brief_text == Signals.text:
@@ -532,7 +532,7 @@ async def _resolve_declared(
                 {
                     "role": "user",
                     "content": (
-                        f"Company: {company or symbol} ({symbol}). Today: {date.today().isoformat()}.\n\n"
+                        f"Company: {company or ticker} ({ticker}). Today: {date.today().isoformat()}.\n\n"
                         f"SNIPPETS:\n{brief_text}"
                     ),
                 },
@@ -543,7 +543,7 @@ async def _resolve_declared(
         log_event(
             "resolve_declared_failure",
             trace_id=trace_id,
-            symbol=symbol,
+            ticker=ticker,
             model=model_label,
             error=str(exc),
         )
@@ -569,7 +569,7 @@ async def _resolve_declared(
 
 
 async def gather_dividend_signals(
-    symbol: str,
+    ticker: str,
     *,
     company_name: Optional[str] = None,
     target_ex: Optional[str] = None,
@@ -579,15 +579,15 @@ async def gather_dividend_signals(
 
     Never raises. Providers that lack a key or error out just don't contribute.
     """
-    symbol = (symbol or "").strip().upper()
+    ticker = (ticker or "").strip().upper()
     async with httpx.AsyncClient(timeout=_TIMEOUT, follow_redirects=True) as client:
         blocks = await asyncio.gather(
-            _fmp(client, symbol, target_ex),
-            _dividend_tracker(client, symbol),
-            _yahoo_news(client, symbol),
-            _finnhub(client, symbol),
-            _alpha(client, symbol),
-            _tavily(symbol, company_name),
+            _fmp(client, ticker, target_ex),
+            _dividend_tracker(client, ticker),
+            _yahoo_news(client, ticker),
+            _finnhub(client, ticker),
+            _alpha(client, ticker),
+            _tavily(ticker, company_name),
             return_exceptions=True,
         )
 
@@ -624,7 +624,7 @@ async def gather_dividend_signals(
     # If no structured provider gave us a declaration (e.g. TSX on FMP's free
     # tier), extract it from the gathered web text so the agents anchor to fact.
     if sig.declared is None:
-        resolved = await _resolve_declared(symbol, company_name, sig.text, trace_id=trace_id)
+        resolved = await _resolve_declared(ticker, company_name, sig.text, trace_id=trace_id)
         if resolved:
             sig.declared = resolved["declared"]
             sig.declared_note = resolved["note"]
@@ -632,7 +632,7 @@ async def gather_dividend_signals(
     log_event(
         "gather_dividend_signals",
         trace_id=trace_id,
-        symbol=symbol,
+        ticker=ticker,
         providers=",".join(used) or "none",
         declared=bool(sig.declared),
         declared_amount=(sig.declared or {}).get("amount"),

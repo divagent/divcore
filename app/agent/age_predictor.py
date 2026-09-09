@@ -90,7 +90,7 @@ def _pattern_text(pattern: PatternLayer) -> str:
 
 
 async def research_prediction(
-    symbol: str,
+    ticker: str,
     facts: FactsLayer,
     pattern: PatternLayer,
     *,
@@ -105,7 +105,7 @@ async def research_prediction(
     filings, fundamentals, news, forums), returning a structured, sourced
     forward-looking prediction. Never raises — on any failure returns a
     LOW-confidence layer that falls back to the pattern's next projected payment."""
-    symbol = (symbol or "").strip().upper()
+    ticker = (ticker or "").strip().upper()
     today = date.today().isoformat()
     generated_at = datetime.now(timezone.utc).isoformat()
 
@@ -132,7 +132,7 @@ async def research_prediction(
     try:
         target_ex = pattern.projected[0].exDate if pattern.projected else None
         signals = await gather_dividend_signals(
-            symbol, company_name=company_name, target_ex=target_ex, trace_id=trace_id
+            ticker, company_name=company_name, target_ex=target_ex, trace_id=trace_id
         )
 
         risk_hint = f"\nAutomated risk hint: {grounding.risk_hint}" if grounding.risk_hint else ""
@@ -148,7 +148,7 @@ async def research_prediction(
             )
 
         user_content = (
-            f"Today is {today}. Company: {company_name or symbol} ({symbol}).\n\n"
+            f"Today is {today}. Company: {company_name or ticker} ({ticker}).\n\n"
             f"=== CONFIRMED PAST DIVIDENDS ===\n{_facts_text(facts)}\n\n"
             f"=== DETECTED PATTERN ===\n{_pattern_text(pattern)}\n\n"
             f"=== VERIFIED FACTS (price, yield, trend) ===\n{grounding.text}{risk_hint}{declared_line}\n\n"
@@ -204,7 +204,7 @@ async def research_prediction(
         log_event(
             "research_prediction_failure",
             trace_id=trace_id,
-            symbol=symbol,
+            ticker=ticker,
             severity="HIGH",
             model=model_label,
             error=str(exc),
@@ -226,7 +226,7 @@ async def research_prediction(
     log_event(
         "research_prediction_done",
         trace_id=trace_id,
-        symbol=symbol,
+        ticker=ticker,
         model=model_label,
         confidence=research.confidence,
         will_maintain=research.willMaintainPattern,

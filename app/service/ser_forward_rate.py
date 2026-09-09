@@ -44,45 +44,45 @@ async def enrich_forward_rates(items: list[dict], *, trace_id: str = "internal")
 
     today = date.today().isoformat()
 
-    # Group items by symbol, and find any already-fresh (today) cache per symbol.
-    by_symbol: dict[str, list[dict]] = {}
+    # Group items by ticker, and find any already-fresh (today) cache per ticker.
+    by_ticker: dict[str, list[dict]] = {}
     fresh: dict[str, dict] = {}
     for it in items:
-        sym = (it.get("symbol") or "").upper()
-        if not sym:
+        tk = (it.get("ticker") or "").upper()
+        if not tk:
             continue
-        by_symbol.setdefault(sym, []).append(it)
+        by_ticker.setdefault(tk, []).append(it)
         if it.get("priceAsOf") == today and it.get("forwardYield") is not None:
-            fresh.setdefault(sym, {k: it.get(k) for k in _FIELDS})
+            fresh.setdefault(tk, {k: it.get(k) for k in _FIELDS})
 
-    # Reuse today's cached value across every item of an already-fresh symbol.
-    for sym, payload in fresh.items():
-        for it in by_symbol[sym]:
+    # Reuse today's cached value across every item of an already-fresh ticker.
+    for tk, payload in fresh.items():
+        for it in by_ticker[tk]:
             _apply(it, payload)
 
-    stale = [sym for sym in by_symbol if sym not in fresh]
+    stale = [tk for tk in by_ticker if tk not in fresh]
     if not stale:
         return items
 
-    # Fetch the stale symbols once each, concurrently.
+    # Fetch the stale tickers once each, concurrently.
     async with httpx.AsyncClient(timeout=_YAHOO_TIMEOUT) as client:
         payloads = await asyncio.gather(
-            *(forward_yield_latest(client, sym, trace_id=trace_id) for sym in stale)
+            *(forward_yield_latest(client, tk, trace_id=trace_id) for tk in stale)
         )
 
     # Apply + persist (write-back) for the ones that resolved.
     patch_jobs = []
     refreshed = 0
-    for sym, payload in zip(stale, payloads):
+    for tk, payload in zip(stale, payloads):
         if not payload:
             continue
         refreshed += 1
-        for it in by_symbol[sym]:
+        for it in by_ticker[tk]:
             _apply(it, payload)
             patch_jobs.append(
                 asyncio.to_thread(
                     gcal_api.patch_private,
-                    symbol=sym,
+                    ticker=tk,
                     ex_date=it["exDate"],
                     updates={k: payload[k] for k in _FIELDS if payload.get(k) is not None},
                     trace_id=trace_id,
@@ -96,7 +96,7 @@ async def enrich_forward_rates(items: list[dict], *, trace_id: str = "internal")
     log_event(
         "forward_rate_enrich_done",
         trace_id=trace_id,
-        symbols=len(by_symbol),
+        tickers=len(by_ticker),
         refreshed=refreshed,
         reused=len(fresh),
     )
