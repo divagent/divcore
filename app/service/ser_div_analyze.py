@@ -59,22 +59,21 @@ ANALYSIS_SYSTEM_PROMPT = (
 _RISK = {"low", "medium", "high"}
 
 
-def _kind_note(kind: str) -> str:
+def _status_note(divstatus: str) -> str:
     return {
-        "fact": "The row claims this ex-date/amount is CONFIRMED — verify against declared filings.",
-        "estimate": "The row is a mechanical PATTERN ESTIMATE (not announced) — treat the amount as unverified.",
-        "prediction": "The row is a forward-looking RESEARCH PREDICTION.",
-    }.get(kind, "")
+        "Confirmed": "The row claims this ex-date/amount is CONFIRMED — verify against declared filings.",
+        "Prediction": "The row is a forward-looking PREDICTION (pattern or research, not announced) — treat the amount as unverified.",
+    }.get(divstatus, "")
 
 
 async def analyze_dividend(
     req: AnalyzeRequest, *, trace_id: str = "internal"
 ) -> AnalyzeResponse:
-    symbol = (req.symbol or "").strip().upper()
+    ticker = (req.ticker or "").strip().upper()
     generated_at = datetime.now(timezone.utc).isoformat()
     facts = req.facts
     company = facts.companyName if facts else None
-    log_event("analyze_dividend_start", trace_id=trace_id, symbol=symbol, kind=req.kind)
+    log_event("analyze_dividend_start", trace_id=trace_id, ticker=ticker, divstatus=req.divstatus)
 
     amount_text = f"{req.amount:.4f}".rstrip("0").rstrip(".") if req.amount is not None else "TBD"
     conf_text = f"{round(req.confidence * 100)}%" if req.confidence is not None else "n/a"
@@ -98,7 +97,7 @@ async def analyze_dividend(
 
     try:
         signals = await gather_dividend_signals(
-            symbol, company_name=company, target_ex=req.exDate, trace_id=trace_id
+            ticker, company_name=company, target_ex=req.exDate, trace_id=trace_id
         )
 
         # A declaration invalidates any forward-looking calendar row. Fire the
@@ -108,7 +107,7 @@ async def analyze_dividend(
         reconcile_task = (
             asyncio.create_task(
                 reconcile_declared(
-                    symbol,
+                    ticker,
                     signals.declared,
                     note=signals.declared_note,
                     fallback_ex_date=req.exDate,
@@ -136,10 +135,10 @@ async def analyze_dividend(
         user_content = (
             f"Today is {date.today().isoformat()}.\n\n"
             f"=== CALENDAR EVENT (may be STALE) ===\n"
-            f"Company: {company or symbol} ({symbol})\n"
+            f"Company: {company or ticker} ({ticker})\n"
             f"Ex-date shown: {req.exDate or 'unknown'}\n"
             f"Amount shown: {amount_text}\n"
-            f"Row type: {req.kind} — {_kind_note(req.kind)}\n"
+            f"Row status: {req.divstatus} — {_status_note(req.divstatus)}\n"
             f"Model confidence (prediction rows only): {conf_text}\n"
             f"Row summary: {req.summary or '(none)'}\n\n"
             f"=== VERIFIED FACTS (price, yield, trend) ===\n{grounding_text}\n"
@@ -176,7 +175,7 @@ async def analyze_dividend(
             corrected = bool(outcome and outcome.get("corrected"))
 
         response = AnalyzeResponse(
-            symbol=symbol,
+            ticker=ticker,
             exDate=req.exDate,
             headline=str(data.get("headline", "") or ""),
             reasoning=str(data.get("reasoning", "") or ""),
@@ -190,15 +189,15 @@ async def analyze_dividend(
         log_event(
             "analyze_dividend_failure",
             trace_id=trace_id,
-            symbol=symbol,
+            ticker=ticker,
             severity="HIGH",
             model=model_label,
             error=str(exc),
         )
         response = AnalyzeResponse(
-            symbol=symbol,
+            ticker=ticker,
             exDate=req.exDate,
-            headline=f"Could not complete live analysis for {symbol}.",
+            headline=f"Could not complete live analysis for {ticker}.",
             reasoning=(
                 f"The agent (model: {model_label}) could not gather signals or parse "
                 "a structured read for this event just now. Try again in a moment."
@@ -212,7 +211,7 @@ async def analyze_dividend(
     log_event(
         "analyze_dividend_done",
         trace_id=trace_id,
-        symbol=symbol,
+        ticker=ticker,
         model=model_label,
         risk=response.riskLabel,
     )

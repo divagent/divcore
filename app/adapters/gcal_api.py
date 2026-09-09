@@ -116,26 +116,26 @@ class GoogleCalendarClient:
     # -- event shaping ----------------------------------------------------
 
     @staticmethod
-    def _event_id(symbol: str, ex_date: str) -> str:
-        """Deterministic, valid Calendar event id from (symbol, ex-date).
+    def _event_id(ticker: str, ex_date: str) -> str:
+        """Deterministic, valid Calendar event id from (ticker, ex-date).
 
         Calendar ids must be base32hex (chars a-v + 0-9), length 5-1024. A sha1 hex
         digest is all 0-9a-f (⊂ a-v), so it satisfies the charset directly.
         """
-        digest = hashlib.sha1(f"{symbol}:{ex_date}".encode("utf-8")).hexdigest()
+        digest = hashlib.sha1(f"{ticker}:{ex_date}".encode("utf-8")).hexdigest()
         return f"div{digest}"
 
     @classmethod
     def _build_event_body(cls, p: DividendPrediction) -> dict:
         ex_date = p.predicted_ex_date
         arrow = _DIRECTION_ARROW.get(p.direction, "→")
-        amount = f"~${p.predicted_amount:.2f}" if p.predicted_amount is not None else "amount TBD"
+        amount = f"~${p.amount:.2f}" if p.amount is not None else "amount TBD"
         low = " [LOW confidence]" if p.confidence_label == "low" else ""
 
-        summary = f"{p.symbol} div {amount} ({arrow} {p.direction}){low}"
+        summary = f"{p.ticker} div {amount} ({arrow} {p.direction}){low}"
 
         description_lines = [
-            f"Predicted dividend for {p.symbol}.",
+            f"Predicted dividend for {p.ticker}.",
             f"Direction vs. last: {p.direction}",
             f"Confidence: {p.confidence:.0%} ({p.confidence_label})",
             "",
@@ -154,7 +154,7 @@ class GoogleCalendarClient:
         end = start + timedelta(days=1)
 
         return {
-            "id": cls._event_id(p.symbol, ex_date),
+            "id": cls._event_id(p.ticker, ex_date),
             "summary": summary,
             "description": "\n".join(description_lines),
             "start": {"date": start.isoformat()},
@@ -163,8 +163,8 @@ class GoogleCalendarClient:
             "extendedProperties": {
                 "private": {
                     "app": "divcore",
-                    "kind": "predicted_dividend",
-                    "symbol": p.symbol,
+                    "divstatus": "Prediction",
+                    "ticker": p.ticker,
                     "direction": p.direction,
                     "confidence": f"{p.confidence:.4f}",
                 }
@@ -176,11 +176,11 @@ class GoogleCalendarClient:
     def upsert_event(
         self,
         *,
-        symbol: str,
+        ticker: str,
         ex_date: str,
         summary: str,
         description: str,
-        kind: str,
+        divstatus: str,
         amount: Optional[float] = None,
         confidence: Optional[float] = None,
         payment_date: Optional[str] = None,
@@ -190,15 +190,15 @@ class GoogleCalendarClient:
         price_as_of: Optional[str] = None,
         trace_id: str = "internal",
     ) -> dict:
-        """Create or update one all-day event, idempotent by (symbol, ex_date).
+        """Create or update one all-day event, idempotent by (ticker, ex_date).
 
-        Used for all three layers (fact / estimate / prediction). The id keys on
-        (symbol, ex_date) only, so re-running overrides the event on that date in
+        Used for both firmness values (Confirmed / Prediction). The id keys on
+        (ticker, ex_date) only, so re-running overrides the event on that date in
         place — one event per date, as agreed. Returns the Google event resource
         plus an "action" key ('created' | 'updated')."""
         start = date.fromisoformat(ex_date)
         end = start + timedelta(days=1)
-        private = {"app": "divcore", "kind": kind, "symbol": symbol}
+        private = {"app": "divcore", "divstatus": divstatus, "ticker": ticker}
         if amount is not None:
             private["amount"] = f"{amount}"
         if confidence is not None:
@@ -215,7 +215,7 @@ class GoogleCalendarClient:
             private["priceAsOf"] = price_as_of
 
         body = {
-            "id": self._event_id(symbol, ex_date),
+            "id": self._event_id(ticker, ex_date),
             "summary": summary,
             "description": description,
             "start": {"date": start.isoformat()},
@@ -247,9 +247,9 @@ class GoogleCalendarClient:
             log_event(
                 "gcal_upsert_failure",
                 trace_id=trace_id,
-                symbol=symbol,
+                ticker=ticker,
                 ex_date=ex_date,
-                kind=kind,
+                divstatus=divstatus,
                 severity="HIGH",
                 status=getattr(exc.resp, "status", None),
                 error=str(exc),
@@ -260,9 +260,9 @@ class GoogleCalendarClient:
         log_event(
             "gcal_upsert_done",
             trace_id=trace_id,
-            symbol=symbol,
+            ticker=ticker,
             ex_date=ex_date,
-            kind=kind,
+            divstatus=divstatus,
             action=action,
             event_id=event.get("id"),
         )
@@ -271,7 +271,7 @@ class GoogleCalendarClient:
     def patch_private(
         self,
         *,
-        symbol: str,
+        ticker: str,
         ex_date: str,
         updates: dict,
         trace_id: str = "internal",
@@ -283,7 +283,7 @@ class GoogleCalendarClient:
         summary/description/amount untouched. Missing event (404) is a no-op.
         Values are stringified (Calendar stores private props as strings).
         """
-        event_id = self._event_id(symbol, ex_date)
+        event_id = self._event_id(ticker, ex_date)
         body = {"extendedProperties": {"private": {k: str(v) for k, v in updates.items()}}}
         service = self._get_service()
         try:
@@ -296,7 +296,7 @@ class GoogleCalendarClient:
             log_event(
                 "gcal_patch_private_failure",
                 trace_id=trace_id,
-                symbol=symbol,
+                ticker=ticker,
                 ex_date=ex_date,
                 severity="LOW",
                 status=getattr(exc.resp, "status", None),
@@ -391,9 +391,9 @@ class GoogleCalendarClient:
 
         return {
             "exDate": ex_date,
-            "symbol": priv.get("symbol") or "",
+            "ticker": priv.get("ticker") or "",
             "amount": _num("amount"),
-            "kind": priv.get("kind") or "fact",
+            "divstatus": priv.get("divstatus") or "Prediction",
             "confidence": _num("confidence"),
             "paymentDate": priv.get("paymentDate") or None,
             "summary": ev.get("summary") or "",
@@ -409,7 +409,7 @@ class GoogleCalendarClient:
     def publish_prediction(
         self, prediction: DividendPrediction, *, trace_id: str = "internal"
     ) -> dict:
-        """Create or update the calendar event for a prediction. Idempotent by (symbol, ex-date).
+        """Create or update the calendar event for a prediction. Idempotent by (ticker, ex-date).
 
         Returns the Google event resource. Raises `CalendarNotConfigured` if creds are
         missing, or `ValueError` if the prediction has no `predicted_ex_date` (an
@@ -417,7 +417,7 @@ class GoogleCalendarClient:
         """
         if not prediction.predicted_ex_date:
             raise ValueError(
-                f"Cannot publish {prediction.symbol}: predicted_ex_date is null; "
+                f"Cannot publish {prediction.ticker}: predicted_ex_date is null; "
                 "an all-day calendar event requires a date."
             )
 
@@ -428,7 +428,7 @@ class GoogleCalendarClient:
         log_event(
             "gcal_publish_start",
             trace_id=trace_id,
-            symbol=prediction.symbol,
+            ticker=prediction.ticker,
             ex_date=prediction.predicted_ex_date,
             event_id=event_id,
         )
@@ -456,7 +456,7 @@ class GoogleCalendarClient:
             log_event(
                 "gcal_publish_failure",
                 trace_id=trace_id,
-                symbol=prediction.symbol,
+                ticker=prediction.ticker,
                 severity="HIGH",
                 status=getattr(exc.resp, "status", None),
                 error=str(exc),
@@ -466,7 +466,7 @@ class GoogleCalendarClient:
         log_event(
             "gcal_publish_done",
             trace_id=trace_id,
-            symbol=prediction.symbol,
+            ticker=prediction.ticker,
             action=action,
             event_id=event.get("id"),
             html_link=event.get("htmlLink"),
@@ -484,11 +484,11 @@ def publish_prediction(
 
 def upsert_event(
     *,
-    symbol: str,
+    ticker: str,
     ex_date: str,
     summary: str,
     description: str,
-    kind: str,
+    divstatus: str,
     amount: Optional[float] = None,
     confidence: Optional[float] = None,
     payment_date: Optional[str] = None,
@@ -500,11 +500,11 @@ def upsert_event(
 ) -> dict:
     """Upsert one labeled all-day event using credentials from settings/.env."""
     return GoogleCalendarClient().upsert_event(
-        symbol=symbol,
+        ticker=ticker,
         ex_date=ex_date,
         summary=summary,
         description=description,
-        kind=kind,
+        divstatus=divstatus,
         amount=amount,
         confidence=confidence,
         payment_date=payment_date,
@@ -517,11 +517,11 @@ def upsert_event(
 
 
 def patch_private(
-    *, symbol: str, ex_date: str, updates: dict, trace_id: str = "internal"
+    *, ticker: str, ex_date: str, updates: dict, trace_id: str = "internal"
 ) -> bool:
     """Merge private-property keys into one event using settings/.env creds."""
     return GoogleCalendarClient().patch_private(
-        symbol=symbol, ex_date=ex_date, updates=updates, trace_id=trace_id
+        ticker=ticker, ex_date=ex_date, updates=updates, trace_id=trace_id
     )
 
 

@@ -187,26 +187,26 @@ def _is_divcore(ev: dict) -> bool:
 
 
 def _event_body(
-    symbol: str,
+    ticker: str,
     ex_date: str,
     summary: str,
     description: str,
-    kind: str,
+    divstatus: str,
     amount: Optional[float],
     confidence: Optional[float],
 ) -> dict:
-    """Same event body the REST upsert builds (id keyed on symbol+ex_date)."""
+    """Same event body the REST upsert builds (id keyed on ticker+ex_date)."""
     from datetime import date, timedelta
 
     start = date.fromisoformat(ex_date)
     end = start + timedelta(days=1)
-    private = {"app": "divcore", "kind": kind, "symbol": symbol}
+    private = {"app": "divcore", "divstatus": divstatus, "ticker": ticker}
     if amount is not None:
         private["amount"] = f"{amount}"
     if confidence is not None:
         private["confidence"] = f"{confidence:.4f}"
     return {
-        "id": _Rest._event_id(symbol, ex_date),
+        "id": _Rest._event_id(ticker, ex_date),
         "summary": summary,
         "description": description,
         "start": {"date": start.isoformat()},
@@ -279,25 +279,25 @@ async def list_events(
 
 async def upsert_event(
     *,
-    symbol: str,
+    ticker: str,
     ex_date: str,
     summary: str,
     description: str,
-    kind: str,
+    divstatus: str,
     amount: Optional[float] = None,
     confidence: Optional[float] = None,
     trace_id: str = "internal",
 ) -> dict:
-    """Create/update one all-day event, idempotent by (symbol, ex_date)."""
-    body = _event_body(symbol, ex_date, summary, description, kind, amount, confidence)
+    """Create/update one all-day event, idempotent by (ticker, ex_date)."""
+    body = _event_body(ticker, ex_date, summary, description, divstatus, amount, confidence)
     async with _session() as (session, calendar_id):
         event = await _upsert_body(session, calendar_id, body)
     log_event(
         "gcal_mcp_upsert_done",
         trace_id=trace_id,
-        symbol=symbol,
+        ticker=ticker,
         ex_date=ex_date,
-        kind=kind,
+        divstatus=divstatus,
         action=event.get("action"),
         event_id=event.get("id"),
     )
@@ -329,10 +329,10 @@ async def delete_event(*, event_id: str, trace_id: str = "internal") -> bool:
 
 
 async def publish_prediction(prediction, *, trace_id: str = "internal") -> dict:
-    """Publish one prediction as an all-day event (idempotent by symbol+ex_date)."""
+    """Publish one prediction as an all-day event (idempotent by ticker+ex_date)."""
     if not prediction.predicted_ex_date:
         raise ValueError(
-            f"Cannot publish {prediction.symbol}: predicted_ex_date is null; "
+            f"Cannot publish {prediction.ticker}: predicted_ex_date is null; "
             "an all-day calendar event requires a date."
         )
     body = _Rest._build_event_body(prediction)  # identical body to the REST path
@@ -341,7 +341,7 @@ async def publish_prediction(prediction, *, trace_id: str = "internal") -> dict:
     log_event(
         "gcal_mcp_publish_done",
         trace_id=trace_id,
-        symbol=prediction.symbol,
+        ticker=prediction.ticker,
         action=event.get("action"),
         event_id=event.get("id"),
     )

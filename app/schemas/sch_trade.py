@@ -21,8 +21,10 @@ def _f(v: Any) -> Optional[float]:
 
 class TradeRow(BaseModel):
     id: str
-    symbol: str
+    ticker: str
     name: Optional[str] = None
+    # Firmness of the underlying tick (from the calendar): Confirmed vs Prediction.
+    divstatus: Optional[str] = None
     exDate: Optional[str] = None
     paymentDate: Optional[str] = None
     quantity: Optional[int] = None
@@ -58,8 +60,9 @@ class TradeRow(BaseModel):
 
         return cls(
             id=str(row["id"]),
-            symbol=row.get("symbol") or "",
+            ticker=row.get("ticker") or "",
             name=row.get("company_name"),
+            divstatus=row.get("divstatus"),
             exDate=_iso(row.get("ex_date")),
             paymentDate=_iso(row.get("payment_date")),
             quantity=int(row["quantity"]) if row.get("quantity") is not None else None,
@@ -81,9 +84,10 @@ class TradeListResponse(BaseModel):
 class TradeInsert(BaseModel):
     """Body for adding a calendar tick to the Trades tab. Carries as much as the
     calendar event has; the trade-log fields start empty for the user to fill in."""
-    symbol: str
+    ticker: str
     exDate: str
     amount: Optional[float] = None
+    divstatus: Optional[str] = None
     confidence: Optional[float] = None
     paymentDate: Optional[str] = None
     companyName: Optional[str] = None

@@ -98,13 +98,14 @@ async def insert_trade(
     seeding the tick-owned columns from the calendar event. Idempotent on
     `(symbol, ex_date)` — an existing row (and any trade entries on it) is left
     untouched and returned as-is. 400 if the ex-date is missing/unparseable."""
-    symbol = body.symbol.strip().upper()
-    trace_id = f"api:div_trade_insert:{symbol}"
+    ticker = body.ticker.strip().upper()
+    trace_id = f"api:div_trade_insert:{ticker}"
     try:
         row = await DivCalTradeRepo(db).insert_tick(
-            symbol=symbol,
+            ticker=ticker,
             ex_date=body.exDate,
             amount=body.amount,
+            divstatus=body.divstatus,
             confidence=body.confidence,
             payment_date=body.paymentDate,
             company_name=body.companyName,

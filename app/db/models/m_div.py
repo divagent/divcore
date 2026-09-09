@@ -43,9 +43,10 @@ class DivCalTrade(Base, BaseMixin):
     __tablename__ = "div_cal_trade"
 
     # -- prediction / tick identity (written by the predict flow) -------------
-    symbol:            Mapped[str] = mapped_column(String(50), nullable=False, index=True)
+    ticker:            Mapped[str] = mapped_column(String(50), nullable=False, index=True)
     ex_date:           Mapped[date] = mapped_column(Date, nullable=True, index=True)
-    predicted_amount:  Mapped[Decimal] = mapped_column(Numeric(10, 4), nullable=True)
+    amount:            Mapped[Decimal] = mapped_column(Numeric(10, 4), nullable=True)
+    divstatus:         Mapped[str] = mapped_column(String(20), nullable=True)  # Confirmed|Prediction
     direction:         Mapped[str] = mapped_column(String(20), nullable=True)  # up|down|constant
     confidence:        Mapped[float] = mapped_column(Float, nullable=True)     # high|low as float score
     reasoning:         Mapped[str] = mapped_column(Text, nullable=True)
@@ -64,7 +65,7 @@ class DivCalTrade(Base, BaseMixin):
     hidden:          Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
 
     __table_args__ = (
-        UniqueConstraint("symbol", "ex_date", name="uq_div_cal_trade_symbol_ex_date"),
+        UniqueConstraint("ticker", "ex_date", name="uq_div_cal_trade_symbol_ex_date"),
     )
 
 

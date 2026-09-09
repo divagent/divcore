@@ -36,10 +36,14 @@ from app.adapters.yahoo_price import fetch_quote, forward_rate_and_yield
 
 import httpx
 
-# Precedence when several layers land on the same ex-date: prediction wins, then
-# estimate, then fact. (Past facts and future projections rarely collide, but the
-# prediction and the first estimate often share a date.)
-_KIND_RANK = {"fact": 0, "estimate": 1, "prediction": 2}
+# Precedence when several sources land on the same ex-date: research prediction
+# wins, then pattern estimate, then confirmed fact. (Past facts and future
+# projections rarely collide, but the prediction and the first estimate often
+# share a date.) Rank is internal; the published/stored value is `divstatus`,
+# which is only ever "Confirmed" or "Prediction" (estimate folds into Prediction).
+_RANK_CONFIRMED = 0
+_RANK_ESTIMATE = 1
+_RANK_PREDICTION = 2
 
 _ARROW = {"up": "↑", "down": "↓", "constant": "→"}
 
@@ -49,51 +53,54 @@ def _fmt_amount(amount: Optional[float]) -> str:
 
 
 def _plan_events(
-    symbol: str,
+    ticker: str,
     facts: FactsLayer,
     pattern: PatternLayer,
     research: ResearchLayer,
 ) -> list[dict]:
-    """Build the list of calendar items, one per ex-date (highest-rank kind wins)."""
+    """Build the list of calendar items, one per ex-date (highest-rank source wins)."""
     by_date: dict[str, dict] = {}
 
-    def consider(ex_date: Optional[str], kind: str, item: dict) -> None:
+    def consider(ex_date: Optional[str], rank: int, item: dict) -> None:
         if not ex_date:
             return
         existing = by_date.get(ex_date)
-        if existing is None or _KIND_RANK[kind] > _KIND_RANK[existing["kind"]]:
-            by_date[ex_date] = {"exDate": ex_date, "kind": kind, **item}
+        if existing is None or rank > existing["_rank"]:
+            by_date[ex_date] = {"exDate": ex_date, "_rank": rank, **item}
 
     for d in facts.confirmed:
-        consider(d.exDate, "fact", {
-            "summary": f"{symbol} {_fmt_amount(d.amount)} (confirmed)",
-            "description": f"Confirmed dividend for {symbol} on {d.exDate}.",
+        consider(d.exDate, _RANK_CONFIRMED, {
+            "summary": f"{ticker} {_fmt_amount(d.amount)} (confirmed)",
+            "description": f"Confirmed dividend for {ticker} on {d.exDate}.",
             "amount": d.amount,
+            "divstatus": "Confirmed",
             "confidence": None,
         })
 
     for p in pattern.projected:
-        consider(p.exDate, "estimate", {
-            "summary": f"{symbol} {_fmt_amount(p.amount)} (estimate)",
-            "description": f"Pattern estimate for {symbol}. {pattern.summary}",
+        consider(p.exDate, _RANK_ESTIMATE, {
+            "summary": f"{ticker} {_fmt_amount(p.amount)} (estimate)",
+            "description": f"Pattern estimate for {ticker}. {pattern.summary}",
             "amount": p.amount,
+            "divstatus": "Prediction",
             "confidence": None,
         })
 
     nxt = research.predictedNext
     if nxt.exDate:
         pct = round(research.confidence * 100)
-        consider(nxt.exDate, "prediction", {
-            "summary": f"{symbol} {_fmt_amount(nxt.amount)} "
+        consider(nxt.exDate, _RANK_PREDICTION, {
+            "summary": f"{ticker} {_fmt_amount(nxt.amount)} "
                        f"({_ARROW.get(nxt.direction, '→')} prediction {pct}%)",
             "description": (
-                f"Research prediction for {symbol}.\n"
+                f"Research prediction for {ticker}.\n"
                 f"Will maintain pattern: {research.willMaintainPattern}\n"
                 f"Confidence: {pct}%\n\n{research.reasoning}"
                 + ("\n\nSources:\n" + "\n".join(f"  - {s.url}" for s in research.sources)
                    if research.sources else "")
             ),
             "amount": nxt.amount,
+            "divstatus": "Prediction",
             "confidence": research.confidence,
         })
 
@@ -101,7 +108,7 @@ def _plan_events(
 
 
 async def _publish_all(
-    symbol: str, events: list[dict], *, forward: Optional[dict] = None, trace_id: str
+    ticker: str, events: list[dict], *, forward: Optional[dict] = None, trace_id: str
 ) -> CalendarLayer:
     written: list[CalendarWrite] = []
     errors: list[str] = []
@@ -111,11 +118,11 @@ async def _publish_all(
         try:
             result = await asyncio.to_thread(
                 upsert_event,
-                symbol=symbol,
+                ticker=ticker,
                 ex_date=ev["exDate"],
                 summary=ev["summary"],
                 description=ev["description"],
-                kind=ev["kind"],
+                divstatus=ev["divstatus"],
                 amount=ev.get("amount"),
                 confidence=ev.get("confidence"),
                 forward_rate=forward.get("forwardRate"),
@@ -126,7 +133,7 @@ async def _publish_all(
             )
             written.append(CalendarWrite(
                 exDate=ev["exDate"],
-                kind=ev["kind"],
+                divstatus=ev["divstatus"],
                 googleEventId=result.get("id"),
                 status=result.get("action", "created"),
             ))
@@ -135,14 +142,14 @@ async def _publish_all(
             errors.append(str(exc))
             log_event(
                 "predict_publish_calendar_unconfigured",
-                trace_id=trace_id, symbol=symbol, severity="MEDIUM",
+                trace_id=trace_id, ticker=ticker, severity="MEDIUM",
             )
             break
         except Exception as exc:  # keep going; one bad write shouldn't sink the rest
-            errors.append(f"{ev['exDate']} ({ev['kind']}): {exc}")
+            errors.append(f"{ev['exDate']} ({ev['divstatus']}): {exc}")
             log_event(
                 "predict_publish_calendar_failure",
-                trace_id=trace_id, symbol=symbol, ex_date=ev["exDate"],
+                trace_id=trace_id, ticker=ticker, ex_date=ev["exDate"],
                 severity="HIGH", error=str(exc),
             )
 
@@ -150,7 +157,7 @@ async def _publish_all(
 
 
 async def _forward_from_facts(
-    symbol: str, req: PredictRequest, *, trace_id: str
+    ticker: str, req: PredictRequest, *, trace_id: str
 ) -> Optional[dict]:
     """Forward yield to stamp on the published events.
 
@@ -167,7 +174,7 @@ async def _forward_from_facts(
         # Yahoo's latest price server-side — same "current price, else last close"
         # meaning — so priceAsOf stays today.
         async with httpx.AsyncClient(timeout=8.0) as client:
-            quote = await fetch_quote(client, symbol, trace_id=trace_id)
+            quote = await fetch_quote(client, ticker, trace_id=trace_id)
         if quote is None:
             return None
         if not price or price <= 0:
@@ -194,10 +201,10 @@ async def predict_and_publish(
 
     Nothing is written to Postgres here — `div_cal_trade` rows are created only when
     the user adds a tick to the Trades tab (POST /div_trade/insert)."""
-    symbol = req.symbol.strip().upper()
+    ticker = req.ticker.strip().upper()
     as_of = req.asOf or date.today().isoformat()
 
-    log_event("predict_publish_start", trace_id=trace_id, symbol=symbol,
+    log_event("predict_publish_start", trace_id=trace_id, ticker=ticker,
               publish=req.publishToCalendar, n_facts=len(req.facts.pastYearDividends))
 
     # Layers 1 & 2 — from the frontend's facts, no re-derivation.
@@ -206,7 +213,7 @@ async def predict_and_publish(
     # Layer 3 — research over those authoritative facts + the detected pattern,
     # grounded in price/yield and multi-source signals (declared, coverage, news).
     research = await research_prediction(
-        symbol,
+        ticker,
         facts,
         pattern,
         trace_id=trace_id,
@@ -219,27 +226,27 @@ async def predict_and_publish(
     # Calendar — one event per ex-date, upserted (or preview: write nothing).
     calendar = CalendarLayer()
     if req.publishToCalendar:
-        events = _plan_events(symbol, facts, pattern, research)
-        forward = await _forward_from_facts(symbol, req, trace_id=trace_id)
-        calendar = await _publish_all(symbol, events, forward=forward, trace_id=trace_id)
+        events = _plan_events(ticker, facts, pattern, research)
+        forward = await _forward_from_facts(ticker, req, trace_id=trace_id)
+        calendar = await _publish_all(ticker, events, forward=forward, trace_id=trace_id)
 
         # If the board has already declared, the row we just wrote is a fact, not a
         # prediction. Reconcile AFTER publishing so the declared 'fact' overwrites
         # the prediction on its true date and supersedes any stale-dated row.
         if research.declared:
             await reconcile_declared(
-                symbol,
+                ticker,
                 research.declared.model_dump(),
                 note=research.declared.note,
                 fallback_ex_date=research.predictedNext.exDate,
                 trace_id=trace_id,
             )
 
-    log_event("predict_publish_done", trace_id=trace_id, symbol=symbol,
+    log_event("predict_publish_done", trace_id=trace_id, ticker=ticker,
               written=len(calendar.written), errors=len(calendar.errors))
 
     return PredictResponse(
-        symbol=symbol,
+        ticker=ticker,
         asOf=as_of,
         currency=req.currency,
         facts=facts,

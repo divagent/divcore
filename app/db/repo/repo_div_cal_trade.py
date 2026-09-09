@@ -40,9 +40,10 @@ class DivCalTradeRepo:
     async def insert_tick(
         self,
         *,
-        symbol: str,
+        ticker: str,
         ex_date: Optional[str],
         amount: Optional[float] = None,
+        divstatus: Optional[str] = None,
         confidence: Optional[float] = None,
         payment_date: Optional[str] = None,
         company_name: Optional[str] = None,
@@ -68,9 +69,10 @@ class DivCalTradeRepo:
                 pay = None
 
         values = {
-            "symbol": symbol,
+            "ticker": ticker,
             "ex_date": ex,
-            "predicted_amount": amount,
+            "amount": amount,
+            "divstatus": divstatus,
             "confidence": confidence,
             "payment_date": pay,
             "company_name": company_name,
@@ -90,7 +92,7 @@ class DivCalTradeRepo:
         existing = (
             await self.db.execute(
                 select(DivCalTrade.__table__).where(
-                    DivCalTrade.symbol == symbol, DivCalTrade.ex_date == ex
+                    DivCalTrade.ticker == ticker, DivCalTrade.ex_date == ex
                 )
             )
         ).mappings().first()

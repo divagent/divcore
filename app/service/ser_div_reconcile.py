@@ -5,10 +5,10 @@ agent (analyze or predict) discovers a declared dividend, the existing forward-
 looking calendar row is no longer a guess — it is stale. This module reconciles
 that in one shot:
 
-  * write/overwrite the declared amount as a ``fact`` event on its true ex-date;
-  * remove any nearby ``prediction``/``estimate`` events for the same symbol whose
-    date differs from the declaration (e.g. we predicted Sep 9, it declared Sep 10 —
-    the Sep 9 row must go, not just sit alongside the fact).
+  * write/overwrite the declared amount as a ``Confirmed`` event on its true ex-date;
+  * remove any nearby ``Prediction`` events for the same symbol whose date differs
+    from the declaration (e.g. we predicted Sep 9, it declared Sep 10 — the Sep 9
+    row must go, not just sit alongside the confirmed one).
 
 It is best-effort by contract: a missing calendar config or any Google/HTTP error
 is swallowed and logged, so an agent response is never blocked or broken by it.
@@ -43,7 +43,7 @@ def _fmt_amount(amount: Optional[float]) -> str:
 
 
 async def reconcile_declared(
-    symbol: str,
+    ticker: str,
     declared: dict,
     *,
     note: Optional[str] = None,
@@ -61,9 +61,9 @@ async def reconcile_declared(
     ex-date (extraction sometimes finds the amount only): we then correct the row
     IN PLACE on the calendar row's own date rather than silently doing nothing.
     """
-    symbol = (symbol or "").strip().upper()
+    ticker = (ticker or "").strip().upper()
     ex = (declared or {}).get("exDate") or fallback_ex_date
-    if not symbol or not ex:
+    if not ticker or not ex:
         return None
     try:
         ex_d = date.fromisoformat(str(ex)[:10])
@@ -74,7 +74,7 @@ async def reconcile_declared(
 
     try:
         return await asyncio.to_thread(
-            _reconcile_sync, symbol, ex, ex_d, amount, declared, note, trace_id
+            _reconcile_sync, ticker, ex, ex_d, amount, declared, note, trace_id
         )
     except CalendarNotConfigured:
         return None  # calendar publishing simply isn't wired up here — fine.
@@ -82,7 +82,7 @@ async def reconcile_declared(
         log_event(
             "reconcile_declared_failure",
             trace_id=trace_id,
-            symbol=symbol,
+            ticker=ticker,
             severity="MEDIUM",
             error=str(exc),
         )
@@ -90,7 +90,7 @@ async def reconcile_declared(
 
 
 def _reconcile_sync(
-    symbol: str,
+    ticker: str,
     ex: str,
     ex_d: date,
     amount: Optional[float],
@@ -101,12 +101,12 @@ def _reconcile_sync(
     lo = (ex_d - timedelta(days=_WINDOW_DAYS)).isoformat()
     hi = (ex_d + timedelta(days=_WINDOW_DAYS)).isoformat()
 
-    # Drop stale forward-looking rows for this symbol whose date != the declaration.
+    # Drop stale forward-looking rows for this ticker whose date != the declaration.
     removed = 0
     for ev in list_events(time_min=lo, time_max=hi, trace_id=trace_id):
-        if (ev.get("symbol") or "").strip().upper() != symbol:
+        if (ev.get("ticker") or "").strip().upper() != ticker:
             continue
-        if ev.get("kind") in ("prediction", "estimate") and ev.get("exDate") != ex:
+        if ev.get("divstatus") == "Prediction" and ev.get("exDate") != ex:
             gid = ev.get("googleEventId")
             if gid and delete_event(event_id=gid, trace_id=trace_id):
                 removed += 1
@@ -114,10 +114,10 @@ def _reconcile_sync(
     # Write the declaration as fact on its true date (overwrites any row already
     # sitting on that exact date — prediction becomes fact in place).
     amt_text = _fmt_amount(amount)
-    summary = f"{symbol} div {amt_text} (declared)"
+    summary = f"{ticker} div {amt_text} (declared)"
     description = "\n".join(
         [
-            f"Declared dividend for {symbol}.",
+            f"Declared dividend for {ticker}.",
             f"Ex-date: {ex}",
             f"Amount: {amt_text}",
             f"Declared: {declared.get('declarationDate') or 'n/a'}   "
@@ -140,11 +140,11 @@ def _reconcile_sync(
             pay_date = None
 
     result = upsert_event(
-        symbol=symbol,
+        ticker=ticker,
         ex_date=ex,
         summary=summary,
         description=description,
-        kind="fact",
+        divstatus="Confirmed",
         amount=amount,
         payment_date=pay_date,
         trace_id=trace_id,
@@ -153,7 +153,7 @@ def _reconcile_sync(
     log_event(
         "reconcile_declared_done",
         trace_id=trace_id,
-        symbol=symbol,
+        ticker=ticker,
         ex_date=ex,
         amount=amount,
         removed_stale=removed,

@@ -37,10 +37,10 @@ class AnalyzeFacts(BaseModel):
 
 
 class AnalyzeRequest(BaseModel):
-    symbol: str
+    ticker: str
     exDate: Optional[str] = None          # ISO yyyy-mm-dd of the clicked event
     amount: Optional[float] = None        # per-share amount, if known
-    kind: Literal["fact", "estimate", "prediction"] = "fact"
+    divstatus: Literal["Confirmed", "Prediction"] = "Confirmed"
     confidence: Optional[float] = None    # 0..1, for prediction rows
     summary: Optional[str] = None         # the calendar row's own summary text
     facts: Optional[AnalyzeFacts] = None  # browser-supplied Yahoo ground truth
@@ -55,7 +55,7 @@ class AnalysisSource(BaseModel):
 
 
 class AnalyzeResponse(BaseModel):
-    symbol: str
+    ticker: str
     exDate: Optional[str] = None
     # One-line takeaway shown as the panel headline.
     headline: str = ""

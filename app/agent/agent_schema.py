@@ -66,9 +66,9 @@ class DividendPrediction(BaseModel):
     is an ISO date string (YYYY-MM-DD) for LLM-friendliness; the service parses it.
     """
 
-    symbol: str
-    predicted_amount: Optional[float] = Field(
-        None, description="Predicted next dividend amount per share, or null if unknown"
+    ticker: str
+    amount: Optional[float] = Field(
+        None, description="Next dividend amount per share, or null if unknown"
     )
     predicted_ex_date: Optional[str] = Field(
         None, description="Predicted ex-dividend date as an ISO string YYYY-MM-DD, or null"

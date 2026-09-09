@@ -27,7 +27,7 @@ class PredictFacts(BaseModel):
 
 
 class PredictRequest(BaseModel):
-    symbol: str
+    ticker: str
     asOf: Optional[str] = None  # ISO yyyy-mm-dd; defaults to today if omitted
     currency: str = "USD"
     facts: PredictFacts = Field(default_factory=PredictFacts)
@@ -107,7 +107,7 @@ class ResearchLayer(BaseModel):
 
 class CalendarWrite(BaseModel):
     exDate: str
-    kind: Literal["fact", "estimate", "prediction"]
+    divstatus: Literal["Confirmed", "Prediction"]
     googleEventId: Optional[str] = None
     status: str  # created | updated | error
 
@@ -121,7 +121,7 @@ class CalendarLayer(BaseModel):
 
 
 class PredictResponse(BaseModel):
-    symbol: str
+    ticker: str
     asOf: str
     currency: str
     facts: FactsLayer
@@ -135,9 +135,11 @@ class PredictResponse(BaseModel):
 
 class CalendarItem(BaseModel):
     exDate: str
-    symbol: str
+    ticker: str
     amount: Optional[float] = None
-    kind: Literal["fact", "estimate", "prediction"] = "fact"
+    # Absent on legacy events (written before this field existed) → default to the
+    # unconfirmed value; they self-heal the next time predict/reconcile re-upserts.
+    divstatus: Literal["Confirmed", "Prediction"] = "Prediction"
     confidence: Optional[float] = None
     # Payment/pay date — only known once a dividend is declared (surfaced by the
     # reconcile step). Null for pattern estimates and un-declared predictions.
