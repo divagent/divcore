@@ -139,6 +139,9 @@ class CalendarItem(BaseModel):
     amount: Optional[float] = None
     kind: Literal["fact", "estimate", "prediction"] = "fact"
     confidence: Optional[float] = None
+    # Payment/pay date — only known once a dividend is declared (surfaced by the
+    # reconcile step). Null for pattern estimates and un-declared predictions.
+    paymentDate: Optional[str] = None
     summary: str = ""
     googleEventId: Optional[str] = None
     htmlLink: Optional[str] = None

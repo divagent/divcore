@@ -130,6 +130,15 @@ def _reconcile_sync(
             "declared. Not investment advice.",
         ]
     )
+    # Normalise the declared pay date to ISO yyyy-mm-dd so it round-trips cleanly
+    # through the calendar into the Trades tab; drop it if it isn't parseable.
+    pay_date = declared.get("payDate")
+    if pay_date:
+        try:
+            pay_date = date.fromisoformat(str(pay_date)[:10]).isoformat()
+        except ValueError:
+            pay_date = None
+
     result = upsert_event(
         symbol=symbol,
         ex_date=ex,
@@ -137,6 +146,7 @@ def _reconcile_sync(
         description=description,
         kind="fact",
         amount=amount,
+        payment_date=pay_date,
         trace_id=trace_id,
     )
 

@@ -106,6 +106,7 @@ async def insert_trade(
             ex_date=body.exDate,
             amount=body.amount,
             confidence=body.confidence,
+            payment_date=body.paymentDate,
             company_name=body.companyName,
             google_event_id=body.googleEventId,
         )

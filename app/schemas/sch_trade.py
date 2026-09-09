@@ -25,6 +25,7 @@ class TradeRow(BaseModel):
     name: Optional[str] = None
     exDate: Optional[str] = None
     paymentDate: Optional[str] = None
+    quantity: Optional[int] = None
     purchaseDate: Optional[str] = None
     purchaseAmount: Optional[float] = None
     sellDate: Optional[str] = None
@@ -61,6 +62,7 @@ class TradeRow(BaseModel):
             name=row.get("company_name"),
             exDate=_iso(row.get("ex_date")),
             paymentDate=_iso(row.get("payment_date")),
+            quantity=int(row["quantity"]) if row.get("quantity") is not None else None,
             purchaseDate=_iso(row.get("purchase_date")),
             purchaseAmount=purchase,
             sellDate=_iso(row.get("sell_date")),
@@ -83,6 +85,7 @@ class TradeInsert(BaseModel):
     exDate: str
     amount: Optional[float] = None
     confidence: Optional[float] = None
+    paymentDate: Optional[str] = None
     companyName: Optional[str] = None
     googleEventId: Optional[str] = None
 
@@ -96,6 +99,7 @@ class TradeUpdate(BaseModel):
     name: Optional[str] = None
     exDate: Optional[str] = None
     paymentDate: Optional[str] = None
+    quantity: Optional[int] = None
     purchaseDate: Optional[str] = None
     purchaseAmount: Optional[float] = None
     sellDate: Optional[str] = None
@@ -114,6 +118,7 @@ class TradeUpdate(BaseModel):
             "name": "company_name",
             "exDate": "ex_date",
             "paymentDate": "payment_date",
+            "quantity": "quantity",
             "purchaseDate": "purchase_date",
             "purchaseAmount": "purchase_amount",
             "sellDate": "sell_date",

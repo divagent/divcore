@@ -55,6 +55,7 @@ class DivCalTrade(Base, BaseMixin):
     # -- trade log (user-entered; total dollars) ------------------------------
     company_name:    Mapped[str] = mapped_column(String(255), nullable=True)
     payment_date:    Mapped[date] = mapped_column(Date, nullable=True)
+    quantity:        Mapped[int] = mapped_column(Integer, nullable=True)
     purchase_date:   Mapped[date] = mapped_column(Date, nullable=True)
     purchase_amount: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=True)
     sell_date:       Mapped[date] = mapped_column(Date, nullable=True)

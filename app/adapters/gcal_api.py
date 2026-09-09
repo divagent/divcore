@@ -183,6 +183,7 @@ class GoogleCalendarClient:
         kind: str,
         amount: Optional[float] = None,
         confidence: Optional[float] = None,
+        payment_date: Optional[str] = None,
         forward_rate: Optional[float] = None,
         forward_yield: Optional[float] = None,
         price: Optional[float] = None,
@@ -202,6 +203,8 @@ class GoogleCalendarClient:
             private["amount"] = f"{amount}"
         if confidence is not None:
             private["confidence"] = f"{confidence:.4f}"
+        if payment_date:
+            private["paymentDate"] = payment_date
         if forward_rate is not None:
             private["forwardRate"] = f"{forward_rate:.4f}"
         if forward_yield is not None:
@@ -392,6 +395,7 @@ class GoogleCalendarClient:
             "amount": _num("amount"),
             "kind": priv.get("kind") or "fact",
             "confidence": _num("confidence"),
+            "paymentDate": priv.get("paymentDate") or None,
             "summary": ev.get("summary") or "",
             "googleEventId": ev.get("id"),
             "htmlLink": ev.get("htmlLink"),
@@ -487,6 +491,7 @@ def upsert_event(
     kind: str,
     amount: Optional[float] = None,
     confidence: Optional[float] = None,
+    payment_date: Optional[str] = None,
     forward_rate: Optional[float] = None,
     forward_yield: Optional[float] = None,
     price: Optional[float] = None,
@@ -502,6 +507,7 @@ def upsert_event(
         kind=kind,
         amount=amount,
         confidence=confidence,
+        payment_date=payment_date,
         forward_rate=forward_rate,
         forward_yield=forward_yield,
         price=price,

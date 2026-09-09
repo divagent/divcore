@@ -22,6 +22,7 @@ EDITABLE_FIELDS = frozenset(
         "company_name",
         "ex_date",  # exposed as the editable "ex-date"
         "payment_date",
+        "quantity",
         "purchase_date",
         "purchase_amount",
         "sell_date",
@@ -43,6 +44,7 @@ class DivCalTradeRepo:
         ex_date: Optional[str],
         amount: Optional[float] = None,
         confidence: Optional[float] = None,
+        payment_date: Optional[str] = None,
         company_name: Optional[str] = None,
         google_event_id: Optional[str] = None,
     ) -> Optional[dict[str, Any]]:
@@ -56,11 +58,21 @@ class DivCalTradeRepo:
         if ex is None:
             return None
 
+        # Payment date is best-effort calendar data — ignore it if unparseable
+        # rather than failing the insert.
+        pay: Optional[date] = None
+        if payment_date:
+            try:
+                pay = date.fromisoformat(str(payment_date)[:10])
+            except ValueError:
+                pay = None
+
         values = {
             "symbol": symbol,
             "ex_date": ex,
             "predicted_amount": amount,
             "confidence": confidence,
+            "payment_date": pay,
             "company_name": company_name,
             "google_event_id": google_event_id,
         }
