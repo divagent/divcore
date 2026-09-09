@@ -159,7 +159,7 @@ async def analyze_dividend_endpoint(req: AnalyzeRequest):
     returns a headline, reliability label, and reasoning (payment history, cadence,
     coverage, confidence). Never 500s — failures come back as a low-signal read."""
     return await analyze_dividend(
-        req, trace_id=f"api:analyze:{req.symbol.strip().upper()}"
+        req, trace_id=f"api:analyze:{req.ticker.strip().upper()}"
     )
 
 
@@ -172,7 +172,7 @@ async def predict_dividend_endpoint(req: PredictRequest):
     The facts in the body are authoritative — the backend echoes them verbatim and
     never re-fetches them. See src/data/ai-query.contract.md in the frontend repo.
     """
-    return await predict_and_publish(req, trace_id=f"api:{req.symbol.strip().upper()}")
+    return await predict_and_publish(req, trace_id=f"api:{req.ticker.strip().upper()}")
 
 
 @divRou.get("/div_agent/calendar_upcoming", response_model=UpcomingCalendarResponse, tags=["Agent"])
