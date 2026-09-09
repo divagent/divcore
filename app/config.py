@@ -27,7 +27,6 @@ class _Settings(BaseSettings):
     # "provider:model_id"; supported providers: "gemini", "groq". A model whose
     # provider has no API key is skipped.
     AI_ROTATION_MODELS: List[str] = [
-        "groq:llama-3.3-70b-versatile",
         "gemini:gemini-3.6-flash",
     ]
 

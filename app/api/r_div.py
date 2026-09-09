@@ -193,6 +193,12 @@ async def calendar_upcoming_endpoint(
             time_max=end.isoformat(),
             trace_id=trace_id,
         )
+        # All-day events end at 00:00 of the next day; for a calendar in a
+        # timezone behind UTC that end lands after the UTC timeMin, so Google
+        # returns yesterday's event as "overlapping". "Upcoming" means today
+        # onward, so drop anything whose ex-date is already in the past.
+        today_iso = start.isoformat()
+        raw = [r for r in raw if (r.get("exDate") or "") >= today_iso]
         # Forward yield (vs. the latest price — live, or last close when the
         # market's shut) is stamped on each event and cached per-day: the first
         # viewer of the day fetches + writes it back, later viewers reuse it.
