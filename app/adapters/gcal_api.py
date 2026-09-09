@@ -391,7 +391,9 @@ class GoogleCalendarClient:
 
         return {
             "exDate": ex_date,
-            "ticker": priv.get("ticker") or "",
+            # `symbol` is the pre-rename key; read it as a fallback so events
+            # published before ticker-rename still show a ticker.
+            "ticker": priv.get("ticker") or priv.get("symbol") or "",
             "amount": _num("amount"),
             "divstatus": priv.get("divstatus") or "Prediction",
             "confidence": _num("confidence"),
