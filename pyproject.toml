@@ -13,10 +13,6 @@ dependencies = [
     "groq>=1.7.0",
     "httpx>=0.28.1",
     "langchain>=1.2.8",
-    # Original OpenAI/Azure dependencies kept for reference:
-    # "langchain-azure-ai>=1.0.0",
-    # "langchain-openai>=1.1.7",
-    # "openai>=2.16.0",
     "mcp>=2.1.1",
     "pandas>=3.0.0",
     "pgvector>=0.4.2",

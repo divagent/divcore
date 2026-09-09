@@ -12,11 +12,12 @@ calling the API needs to change.
 import asyncio
 from datetime import date, timedelta
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncConnection
 
 from app.core.ai_logging import log_event
 from app.db.conn.db_async import get_db
+from app.db.repo.repo_div_cal_trade import DivCalTradeRepo
 from app.schemas.sch_analyze import AnalyzeRequest, AnalyzeResponse
 from app.schemas.sch_predict import (
     CalendarItem,
@@ -24,6 +25,7 @@ from app.schemas.sch_predict import (
     PredictResponse,
     UpcomingCalendarResponse,
 )
+from app.schemas.sch_trade import TradeListResponse, TradeRow, TradeUpdate
 from app.service.ser_div_analyze import analyze_dividend
 from app.service.ser_div_predict_publish import predict_and_publish
 from app.service.ser_forward_rate import enrich_forward_rates
@@ -65,6 +67,54 @@ async def list_divs(
             "div_show_list_failure", trace_id=trace_id, severity="HIGH", error=str(exc)
         )
         return []
+
+
+# --------------------------------------------------------------------------- #
+# trade — Postgres reads/writes on div_cal_trade (the Trades tab)
+# --------------------------------------------------------------------------- #
+@divRou.get("/div_trade/list", response_model=TradeListResponse, tags=["Trades"])
+async def list_trades(
+    include_hidden: bool = Query(False, description="Include rows marked hidden"),
+    db: AsyncConnection = Depends(get_db),
+):
+    """List the calendar-tick / trade-log rows from `div_cal_trade`, newest ex-date
+    first. Hidden rows are excluded unless `include_hidden=true`. Profit is derived
+    (proceeds - cost + dividends) once a position is closed. Never 500s."""
+    trace_id = f"api:div_trade_list:{include_hidden}"
+    try:
+        rows = await DivCalTradeRepo(db).list_trades(include_hidden=include_hidden)
+        return TradeListResponse(items=[TradeRow.from_row(r) for r in rows])
+    except Exception as exc:  # never let the tab crash the page
+        log_event("div_trade_list_failure", trace_id=trace_id, severity="HIGH", error=str(exc))
+        return TradeListResponse(items=[])
+
+
+@divRou.patch("/div_trade/{trade_id}", response_model=TradeRow, tags=["Trades"])
+async def update_trade(
+    trade_id: str,
+    body: TradeUpdate,
+    db: AsyncConnection = Depends(get_db),
+):
+    """Patch one row's user-editable fields (trade entries + hidden, plus the
+    editable ex-date / payment-date / name). Returns the updated row with profit
+    recomputed. 400 on unparseable dates, 404 if the id is unknown."""
+    trace_id = f"api:div_trade_update:{trade_id}"
+    try:
+        columns = body.to_columns()
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid date format; expected yyyy-mm-dd.")
+    if not columns:
+        raise HTTPException(status_code=400, detail="No editable fields supplied.")
+
+    try:
+        row = await DivCalTradeRepo(db).update_trade(trade_id, columns)
+    except Exception as exc:
+        log_event("div_trade_update_failure", trace_id=trace_id, severity="HIGH", error=str(exc))
+        raise HTTPException(status_code=500, detail="Failed to update trade row.")
+
+    if row is None:
+        raise HTTPException(status_code=404, detail=f"No trade row with id {trade_id}.")
+    return TradeRow.from_row(row)
 
 
 # --------------------------------------------------------------------------- #

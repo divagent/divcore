@@ -10,7 +10,6 @@ class _Settings(BaseSettings):
     # Always use get_settings_singleton() to access application configuration.
     #     Settings 是实现细节，不是公共 API
     # 公共 API 只有 get_settings_singleton()
-    AZURE_SEARCH_ENDPOINT: str = "https://aisearch8.search.windows.net"
     GOOGLE_SHEET_URL: str= "https://docs.google.com/spreadsheets/d/15QBf76ab4zSt-S-oGSrSpgdJngpdGCxFMJqZkC6_sAM/export?format=csv"
     NASDAQ_URL: str= "https://api.nasdaq.com/api/calendar/dividends"
 
@@ -31,11 +30,7 @@ class _Settings(BaseSettings):
         "groq:llama-3.3-70b-versatile",
         "gemini:gemini-3.6-flash",
     ]
-    # Original OpenAI/Azure settings kept for reference:
-    # OPENAI_API_KEY: Optional[str] = None
-    # AZURE_OPENAI_API_KEY: Optional[str] = None
 
-    
     SERPERDEV_API_KEY: Optional[str] = None
     TAVILY_API_KEY: str = "ff"
     ALPHAVANTAGE_API_KEY:  str = "ff"

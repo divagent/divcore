@@ -24,7 +24,7 @@ from app.agent.age_pattern import build_facts_and_pattern
 from app.agent.age_predictor import research_prediction
 from app.agent.agent_schema import DividendPrediction
 from app.core.ai_logging import log_event
-from app.db.repo.repo_div_prediction import DivPredictionRepo
+from app.db.repo.repo_div_cal_trade import DivCalTradeRepo
 from app.schemas.sch_predict import (
     CalendarLayer,
     CalendarWrite,
@@ -215,7 +215,7 @@ async def _persist_prediction(
         sources=[s.url for s in research.sources],
     )
     try:
-        repo = DivPredictionRepo(db)
+        repo = DivCalTradeRepo(db)
         await repo.upsert_prediction(prediction, google_event_id=google_event_id)
     except Exception as exc:  # persistence is not on the critical path
         log_event(

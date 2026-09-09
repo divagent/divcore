@@ -11,23 +11,6 @@ from app.adapters.gemini import (
 logger = logging.getLogger(__name__)
 
 
-# Original Azure/OpenAI setup kept for reference:
-# import os
-# from openai import AzureOpenAI, AsyncOpenAI
-# from app.config import get_settings_singleton
-#
-# settings = get_settings_singleton()
-# subscription_key=settings.OPENAI_API_KEY,
-# endpoint = "https://haystacked.cognitiveservices.azure.com/"
-# model_name = "gpt-5-nano"
-# deployment = "gpt-5-nano"
-# api_version = "2024-12-01-preview"
-# client = AsyncOpenAI(
-#     api_key=settings.OPENAI_API_KEY,
-#     base_url="https://haystacked.openai.azure.com/openai/v1/",
-# )
-
-
 def _wants_json(system_prompt: str | None, messages: list | None) -> bool:
     text = system_prompt or ""
     if messages:
@@ -143,7 +126,7 @@ async def chat_completion_agent(
     model: tuple[str, str] | None = None,
 ) -> str:
     """
-    Gemini/Groq-backed replacement for the old Azure/OpenAI helper.
+    Gemini/Groq-backed chat helper.
     Supports both repo calling styles:
     - chat_completion_agent(system_prompt, user_prompt)
     - chat_completion_agent(messages=[...])

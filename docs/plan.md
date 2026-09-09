@@ -29,9 +29,9 @@ Decisions locked with the user:
   `age_brain.py` (`decide_next_action`, JSON-only system prompt), `age_tools.py`.
   It already has the two research tools we need:
   - `search_web_tool` → **Tavily** live web search (news / announcements). `TAVILY_API_KEY`.
-  - `get_dividend_data_tool` → RAG over historical dividends (Azure Cognitive Search).
-    LLM is **Gemini** (`gemini-2.5-flash`) via `app/llm/gemini.py` /
-    `app/llm/azure_openai_chat.py::chat_completion_agent` (Gemini-backed; JSON mode when
+  - `get_dividend_data_tool` → historical dividend lookup.
+    LLM is **Gemini** (`gemini-2.5-flash`) via `app/adapters/gemini_chat.py::chat_completion_agent`
+    (Gemini-backed; JSON mode when
     "json" appears in the prompt). Live endpoint: `POST /div_agent/chat_with_agent`
     (`app/api/r_div_agent.py`).
 - **AVOID the `app/lc/**` LangChain stack** — stubs; `bind_tools` is a no-op,
