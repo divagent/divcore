@@ -34,18 +34,18 @@ _TIMEOUT = 8.0
 class YahooQuote:
     """Flat holder for one symbol's price + trailing dividends."""
 
-    __slots__ = ("symbol", "currency", "latest_price", "prev_close", "prev_close_date", "dividends")
+    __slots__ = ("ticker", "currency", "latest_price", "prev_close", "prev_close_date", "dividends")
 
     def __init__(
         self,
-        symbol: str,
+        ticker: str,
         currency: Optional[str],
         latest_price: Optional[float],
         prev_close: Optional[float],
         prev_close_date: Optional[str],
         dividends: List[Tuple[str, float]],
     ) -> None:
-        self.symbol = symbol
+        self.ticker = ticker
         self.currency = currency
         self.latest_price = latest_price
         self.prev_close = prev_close
@@ -76,7 +76,7 @@ def forward_rate_and_yield(
     return forward_rate, round(forward_rate / price * 100, 2)
 
 
-def _parse_chart(symbol: str, payload: dict) -> Optional[YahooQuote]:
+def _parse_chart(ticker: str, payload: dict) -> Optional[YahooQuote]:
     result = ((payload or {}).get("chart") or {}).get("result") or []
     if not result:
         return None
@@ -121,7 +121,7 @@ def _parse_chart(symbol: str, payload: dict) -> Optional[YahooQuote]:
         dividends.append((d, float(amt)))
 
     return YahooQuote(
-        symbol=(meta.get("symbol") or symbol).upper(),
+        ticker=(meta.get("symbol") or ticker).upper(),
         currency=meta.get("currency"),
         latest_price=latest_price,
         prev_close=prev_close,
