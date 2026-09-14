@@ -46,7 +46,7 @@ class DivCalTrade(Base, BaseMixin):
     ticker:            Mapped[str] = mapped_column(String(50), nullable=False, index=True)
     ex_date:           Mapped[date] = mapped_column(Date, nullable=True, index=True)
     amount:            Mapped[Decimal] = mapped_column(Numeric(10, 4), nullable=True)
-    divstatus:         Mapped[str] = mapped_column(String(20), nullable=True)  # Confirmed|Prediction
+    divstatus:         Mapped[str] = mapped_column(String(20), nullable=True)  # Declared|Prediction
     direction:         Mapped[str] = mapped_column(String(20), nullable=True)  # up|down|constant
     confidence:        Mapped[float] = mapped_column(Float, nullable=True)     # high|low as float score
     reasoning:         Mapped[str] = mapped_column(Text, nullable=True)

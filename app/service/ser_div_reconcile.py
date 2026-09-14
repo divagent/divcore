@@ -5,7 +5,7 @@ agent (analyze or predict) discovers a declared dividend, the existing forward-
 looking calendar row is no longer a guess — it is stale. This module reconciles
 that in one shot:
 
-  * write/overwrite the declared amount as a ``Confirmed`` event on its true ex-date;
+  * write/overwrite the declared amount as a ``Declared`` event on its true ex-date;
   * remove any nearby ``Prediction`` events for the same symbol whose date differs
     from the declaration (e.g. we predicted Sep 9, it declared Sep 10 — the Sep 9
     row must go, not just sit alongside the confirmed one).
@@ -144,7 +144,7 @@ def _reconcile_sync(
         ex_date=ex,
         summary=summary,
         description=description,
-        divstatus="Confirmed",
+        divstatus="Declared",
         amount=amount,
         payment_date=pay_date,
         trace_id=trace_id,

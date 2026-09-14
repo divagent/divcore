@@ -40,7 +40,7 @@ class AnalyzeRequest(BaseModel):
     ticker: str
     exDate: Optional[str] = None          # ISO yyyy-mm-dd of the clicked event
     amount: Optional[float] = None        # per-share amount, if known
-    divstatus: Literal["Confirmed", "Prediction"] = "Confirmed"
+    divstatus: Literal["Declared", "Prediction"] = "Declared"
     confidence: Optional[float] = None    # 0..1, for prediction rows
     summary: Optional[str] = None         # the calendar row's own summary text
     facts: Optional[AnalyzeFacts] = None  # browser-supplied Yahoo ground truth

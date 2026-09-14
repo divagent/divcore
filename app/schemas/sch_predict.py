@@ -112,7 +112,7 @@ class ResearchLayer(BaseModel):
 
 class CalendarWrite(BaseModel):
     exDate: str
-    divstatus: Literal["Confirmed", "Prediction"]
+    divstatus: Literal["Declared", "Prediction"]
     googleEventId: Optional[str] = None
     status: str  # created | updated | error
 
@@ -144,7 +144,7 @@ class CalendarItem(BaseModel):
     amount: Optional[float] = None
     # Absent on legacy events (written before this field existed) → default to the
     # unconfirmed value; they self-heal the next time predict/reconcile re-upserts.
-    divstatus: Literal["Confirmed", "Prediction"] = "Prediction"
+    divstatus: Literal["Declared", "Prediction"] = "Prediction"
     confidence: Optional[float] = None
     # Payment/pay date — only known once a dividend is declared (surfaced by the
     # reconcile step). Null for pattern estimates and un-declared predictions.

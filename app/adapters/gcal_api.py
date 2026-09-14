@@ -192,7 +192,7 @@ class GoogleCalendarClient:
     ) -> dict:
         """Create or update one all-day event, idempotent by (ticker, ex_date).
 
-        Used for both firmness values (Confirmed / Prediction). The id keys on
+        Used for both firmness values (Declared / Prediction). The id keys on
         (ticker, ex_date) only, so re-running overrides the event on that date in
         place — one event per date, as agreed. Returns the Google event resource
         plus an "action" key ('created' | 'updated')."""
@@ -395,7 +395,10 @@ class GoogleCalendarClient:
             # published before ticker-rename still show a ticker.
             "ticker": priv.get("ticker") or priv.get("symbol") or "",
             "amount": _num("amount"),
-            "divstatus": priv.get("divstatus") or "Prediction",
+            # "Confirmed" was the pre-rename firmness value; normalize legacy events
+            # to "Declared" on read so old calendar entries render correctly. They
+            # self-heal to the new value the next time predict/reconcile re-upserts.
+            "divstatus": "Declared" if priv.get("divstatus") == "Confirmed" else (priv.get("divstatus") or "Prediction"),
             "confidence": _num("confidence"),
             "paymentDate": priv.get("paymentDate") or None,
             "summary": ev.get("summary") or "",

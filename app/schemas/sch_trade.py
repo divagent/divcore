@@ -23,7 +23,7 @@ class TradeRow(BaseModel):
     id: str
     ticker: str
     name: Optional[str] = None
-    # Firmness of the underlying tick (from the calendar): Confirmed vs Prediction.
+    # Firmness of the underlying tick (from the calendar): Declared vs Prediction.
     divstatus: Optional[str] = None
     # The tick's dividend amount (per share) carried from the calendar event.
     amount: Optional[float] = None

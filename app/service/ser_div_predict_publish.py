@@ -41,7 +41,7 @@ import httpx
 # ex-date (lowest — a real forecast on the same date always supersedes it).
 # (Past facts and future projections rarely collide, but the prediction and the
 # first estimate often share a date.) Rank is internal; the published/stored value
-# is `divstatus`, only ever "Confirmed" or "Prediction" (estimate folds into Prediction).
+# is `divstatus`, only ever "Declared" or "Prediction" (estimate folds into Prediction).
 _RANK_SCHEDULED = -1
 _RANK_CONFIRMED = 0
 _RANK_ESTIMATE = 1
@@ -76,6 +76,9 @@ def _plan_events(
     # Yahoo's scheduled next ex-date — the reliable-timing floor. Guarantees a
     # forward calendar entry for variable payers whose pattern/research layers
     # both withhold; overridden by any real estimate/prediction on the same date.
+    # The date is dependable but the amount is only a forward-rate estimate, so we
+    # stamp a deliberately tiny confidence (1%) — it renders as "1%", not the "0%"
+    # a smaller value would round to, and never reads as a firm figure.
     consider(next_ex_date, _RANK_SCHEDULED, {
         "summary": f"{ticker} {_fmt_amount(next_amount)} (scheduled ex-date)",
         "description": (
@@ -84,15 +87,15 @@ def _plan_events(
         ),
         "amount": next_amount,
         "divstatus": "Prediction",
-        "confidence": None,
+        "confidence": 0.01,
     })
 
     for d in facts.confirmed:
         consider(d.exDate, _RANK_CONFIRMED, {
-            "summary": f"{ticker} {_fmt_amount(d.amount)} (confirmed)",
-            "description": f"Confirmed dividend for {ticker} on {d.exDate}.",
+            "summary": f"{ticker} {_fmt_amount(d.amount)} (declared)",
+            "description": f"Declared dividend for {ticker} on {d.exDate}.",
             "amount": d.amount,
-            "divstatus": "Confirmed",
+            "divstatus": "Declared",
             "confidence": None,
         })
 

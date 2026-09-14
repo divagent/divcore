@@ -61,7 +61,7 @@ _RISK = {"low", "medium", "high"}
 
 def _status_note(divstatus: str) -> str:
     return {
-        "Confirmed": "The row claims this ex-date/amount is CONFIRMED — verify against declared filings.",
+        "Declared": "The row claims this ex-date/amount is DECLARED — verify against the board's filings.",
         "Prediction": "The row is a forward-looking PREDICTION (pattern or research, not announced) — treat the amount as unverified.",
     }.get(divstatus, "")
 
