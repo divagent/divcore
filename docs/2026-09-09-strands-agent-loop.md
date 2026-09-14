@@ -18,6 +18,13 @@ Two locked-in choices from the design discussion:
    replaces any in-process registry. This is the answer to "one place, no mental
    burden to remember where tools are."
 
+Tool-placement rule (locked 2026-09-14): **every data/deterministic tool lives in
+`divmcp` from the start** — never in the agent runtime. The catalog only grows, so
+piling tools into the agent doesn't scale; the agent (`divagent`) stays thin and
+*discovers* tools over MCP. The one exception is the **LLM-specialist agents-as-tools**
+(`extract_declared`, `classify_risk`, `verify_declared`): they need the model ring,
+so they live in `divagent`, not in the model-less MCP data server.
+
 This also lands the Phase-2 item from `2026-09-01-divmcp-phase1.md`: the "agent
 tool-use loop in divcore (MCP client)" — Strands is that client.
 
@@ -161,7 +168,7 @@ candidates from `dividend_tracker`, `extract_declared`, and the calendar row, it
 cross-checks and, on conflict, calls `web_search`/`fetch_url` once more and returns
 the corroborated value with `confidence`. A Strands **hook** captures every tool's
 `sources`/`confidence` into a provenance trail so the card shows *why* it believes a
-number — feeding the Confirmed/Prediction status model (no mapping layer; status is
+number — feeding the Declared/Prediction status model (no mapping layer; status is
 a stored attribute).
 
 ## Mapping onto the current repo

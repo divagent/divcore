@@ -31,7 +31,7 @@ Click CNQ.TO → the agent returns a grounded `AnalysisResult`:
 - **Never dead-ends:** if the whole model ring is down, it still returns a factual
   tier-2 card from the tools already gathered.
 - Output: `headline`, `riskLabel`, `reasoning`, `sources[]`, `confidence`, `model`.
-- Status stays a stored attribute (Confirmed | Prediction), no mapping layer.
+- Status stays a stored attribute (Declared | Prediction), no mapping layer.
 
 ## Minimum pieces this slice needs
 
@@ -57,13 +57,19 @@ Only what CNQ.TO touches — nothing more.
 
 ## Build order
 
+Tools land in `divmcp` first (the catalog), the agent (`divagent`) is built to
+discover them, then resilience, then integration in `divcore`:
+
 ```
-1 deps+ring ─▶ 2 FallbackModel ─▶ 3 dividend_tracker as MCP tool
-   ─▶ 4 extract_declared ─▶ 5 verify_declared ─▶ 6 analyze agent
-   ─▶ 7 degradation wrapper ─▶ 8 endpoint swap
+M1 dividend_tracker as MCP tool (divmcp) ─▶ M2 minimal Strands agent discovers
+   it over MCP (divagent) ─▶ M3 FallbackModel ring + structured_output (divagent)
+   ─▶ M4 extract_declared / verify_declared agents-as-tools + degradation (divagent)
+   ─▶ M5 endpoint swap behind the same contract (divcore)
 ```
 
-Each step is testable against CNQ.TO in isolation before the next.
+Each step is testable against CNQ.TO in isolation before the next. `deps+ring` and
+`FallbackModel` fold into M3; `dividend_tracker` is M1 because a data tool belongs in
+`divmcp` from the start, not inside the agent.
 
 ## Verification (all against CNQ.TO)
 
