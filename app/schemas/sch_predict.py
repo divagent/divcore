@@ -24,6 +24,11 @@ class PredictFacts(BaseModel):
     price: Optional[float] = None
     ttmAmount: Optional[float] = None
     pastYearDividends: List[FactDividend] = Field(default_factory=list)
+    # Yahoo's scheduled next ex-date + per-payment estimate. Authoritative timing;
+    # published as a low-priority anchor so a real estimate/prediction on the same
+    # date still wins, but a forward event exists even when both layers withhold.
+    nextExDate: Optional[str] = None
+    nextAmount: Optional[float] = None
 
 
 class PredictRequest(BaseModel):

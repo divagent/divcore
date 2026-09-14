@@ -37,10 +37,12 @@ from app.adapters.yahoo_price import fetch_quote, forward_rate_and_yield
 import httpx
 
 # Precedence when several sources land on the same ex-date: research prediction
-# wins, then pattern estimate, then confirmed fact. (Past facts and future
-# projections rarely collide, but the prediction and the first estimate often
-# share a date.) Rank is internal; the published/stored value is `divstatus`,
-# which is only ever "Confirmed" or "Prediction" (estimate folds into Prediction).
+# wins, then pattern estimate, then confirmed fact, then Yahoo's bare scheduled
+# ex-date (lowest — a real forecast on the same date always supersedes it).
+# (Past facts and future projections rarely collide, but the prediction and the
+# first estimate often share a date.) Rank is internal; the published/stored value
+# is `divstatus`, only ever "Confirmed" or "Prediction" (estimate folds into Prediction).
+_RANK_SCHEDULED = -1
 _RANK_CONFIRMED = 0
 _RANK_ESTIMATE = 1
 _RANK_PREDICTION = 2
@@ -57,6 +59,9 @@ def _plan_events(
     facts: FactsLayer,
     pattern: PatternLayer,
     research: ResearchLayer,
+    *,
+    next_ex_date: Optional[str] = None,
+    next_amount: Optional[float] = None,
 ) -> list[dict]:
     """Build the list of calendar items, one per ex-date (highest-rank source wins)."""
     by_date: dict[str, dict] = {}
@@ -67,6 +72,20 @@ def _plan_events(
         existing = by_date.get(ex_date)
         if existing is None or rank > existing["_rank"]:
             by_date[ex_date] = {"exDate": ex_date, "_rank": rank, **item}
+
+    # Yahoo's scheduled next ex-date — the reliable-timing floor. Guarantees a
+    # forward calendar entry for variable payers whose pattern/research layers
+    # both withhold; overridden by any real estimate/prediction on the same date.
+    consider(next_ex_date, _RANK_SCHEDULED, {
+        "summary": f"{ticker} {_fmt_amount(next_amount)} (scheduled ex-date)",
+        "description": (
+            f"Scheduled ex-dividend date for {ticker} (per Yahoo). Amount is an "
+            f"estimate from the forward rate — not a declared figure."
+        ),
+        "amount": next_amount,
+        "divstatus": "Prediction",
+        "confidence": None,
+    })
 
     for d in facts.confirmed:
         consider(d.exDate, _RANK_CONFIRMED, {
@@ -226,7 +245,11 @@ async def predict_and_publish(
     # Calendar — one event per ex-date, upserted (or preview: write nothing).
     calendar = CalendarLayer()
     if req.publishToCalendar:
-        events = _plan_events(ticker, facts, pattern, research)
+        events = _plan_events(
+            ticker, facts, pattern, research,
+            next_ex_date=req.facts.nextExDate,
+            next_amount=req.facts.nextAmount,
+        )
         forward = await _forward_from_facts(ticker, req, trace_id=trace_id)
         calendar = await _publish_all(ticker, events, forward=forward, trace_id=trace_id)
 
