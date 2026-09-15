@@ -67,11 +67,10 @@ class _Settings(BaseSettings):
     # Security
     SECRET_KEY: str = "your-secret-key-here-change-in-production"
 
-    # divagent (agents-only service) — divcore calls it for agent runs and presents
-    # INTERNAL_SERVICE_KEY as the X-Internal-Key header. TRACE_SECRET gates the
-    # frontend-facing trace endpoint (sent by the secret page as X-Trace-Secret).
+    # divagent (agents-only service) — divcore proxies agent runs to it. One shared
+    # TRACE_SECRET gates the whole chain: the frontend sends it as X-Trace-Secret,
+    # divcore validates it and forwards the SAME header on to divagent.
     DIVAGENT_URL: str = "http://localhost:8001"
-    INTERNAL_SERVICE_KEY: Optional[str] = None
     TRACE_SECRET: Optional[str] = None
 
 

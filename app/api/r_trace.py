@@ -6,10 +6,11 @@ divreact. It runs the analyze agent and streams back a source-tagged NDJSON trac
 frontend -> divcore -> divagent -> divmcp pipeline live.
 
 divcore is the only frontend-facing backend: it does NOT run the agent itself.
-It gates the request with the `X-Trace-Secret` header (on top of the app-level
-admin Basic auth), then proxies to divagent's agents-only trace endpoint
-(authenticated with INTERNAL_SERVICE_KEY) and passes the stream straight through.
-A secret miss returns 404 so the endpoint's existence isn't confirmed.
+It gates the request with the shared `X-Trace-Secret` header (on top of the
+app-level admin Basic auth), then proxies to divagent's agents-only trace endpoint
+forwarding the SAME `X-Trace-Secret` (one shared TRACE_SECRET across frontend /
+divcore / divagent) and passes the stream straight through. A secret miss returns
+404 so the endpoint's existence isn't confirmed.
 """
 
 import httpx
@@ -41,7 +42,7 @@ async def trace_analyze(
                 "POST",
                 upstream,
                 params={"q": q},
-                headers={"X-Internal-Key": settings.INTERNAL_SERVICE_KEY or ""},
+                headers={"X-Trace-Secret": secret},
             ) as resp:
                 if resp.status_code != 200:
                     # Surface a single error line the trace UI can render.
