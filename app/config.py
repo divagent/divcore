@@ -67,6 +67,13 @@ class _Settings(BaseSettings):
     # Security
     SECRET_KEY: str = "your-secret-key-here-change-in-production"
 
+    # divagent (agents-only service) — divcore calls it for agent runs and presents
+    # INTERNAL_SERVICE_KEY as the X-Internal-Key header. TRACE_SECRET gates the
+    # frontend-facing trace endpoint (sent by the secret page as X-Trace-Secret).
+    DIVAGENT_URL: str = "http://localhost:8001"
+    INTERNAL_SERVICE_KEY: Optional[str] = None
+    TRACE_SECRET: Optional[str] = None
+
 
 @lru_cache()
 def get_settings_singleton()-> _Settings:
