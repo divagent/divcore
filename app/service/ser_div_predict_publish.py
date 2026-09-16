@@ -5,7 +5,8 @@ Contract: `src/data/ai-query.contract.md` (frontend repo). One call, three layer
 
     layer 1  facts     — echoed verbatim from the request (NEVER re-derived here)
     layer 2  pattern    — age_pattern.build_facts_and_pattern (heuristics, no LLM)
-    layer 3  research    — age_predictor.research_prediction (web + LLM, sourced)
+    layer 3  research    — age_predictor.research_prediction (proxies to divagent's
+                           Strands + divmcp agent; web + LLM, sourced)
     calendar             — one all-day event per (symbol, ex-date), upserted
 
 `publishToCalendar=False` computes all three layers and writes nothing (preview).
