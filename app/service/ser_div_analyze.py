@@ -67,13 +67,30 @@ def _status_note(divstatus: str) -> str:
 
 
 async def analyze_dividend(
-    req: AnalyzeRequest, *, trace_id: str = "internal"
+    req: AnalyzeRequest, *, on_step=None, trace_id: str = "internal"
 ) -> AnalyzeResponse:
     ticker = (req.ticker or "").strip().upper()
     generated_at = datetime.now(timezone.utc).isoformat()
     facts = req.facts
     company = facts.companyName if facts else None
     log_event("analyze_dividend_start", trace_id=trace_id, ticker=ticker, divstatus=req.divstatus)
+
+    # Step trace (for the SSE endpoint): every milestone is emitted so the UI can
+    # show exactly how far a failing analysis got. `current["step"]` names the
+    # in-flight step, so the except block can report where it died. `on_step` is
+    # optional and best-effort — a broken trace sink never breaks the analysis.
+    current = {"step": "request"}
+
+    async def emit(step: str, status: str = "ok", **data) -> None:
+        if on_step is None:
+            return
+        try:
+            await on_step({"step": step, "status": status, **data})
+        except Exception:  # noqa: BLE001 - trace is best-effort, never fatal
+            pass
+
+    # 1) Echo the exact JSON the browser sent — the first thing the trace shows.
+    await emit("request", request=req.model_dump())
 
     amount_text = f"{req.amount:.4f}".rstrip("0").rstrip(".") if req.amount is not None else "TBD"
     conf_text = f"{round(req.confidence * 100)}%" if req.confidence is not None else "n/a"
@@ -82,7 +99,8 @@ async def analyze_dividend(
     # "unavailable" if we fail before reaching the model. Rotation picks it per call.
     model_label = "unavailable"
 
-    # Quantitative grounding from the browser's Yahoo facts (yield + amount trend).
+    # 2) Quantitative grounding from the browser's Yahoo facts (yield + amount trend).
+    current["step"] = "grounding"
     grounding = None
     if facts:
         grounding = build_grounding(
@@ -94,16 +112,30 @@ async def analyze_dividend(
             trailing_yield_pct=facts.trailingYield,
             forward_rate=facts.forwardRate,
         )
+    await emit(
+        "grounding",
+        status="ok" if grounding else "skipped",
+        detail=(grounding.risk_hint if grounding else "no quantitative facts supplied"),
+    )
 
     try:
+        # 3) Gather multi-source signals (declared filings, fundamentals, news, forums).
+        current["step"] = "signals"
         signals = await gather_dividend_signals(
             ticker, company_name=company, target_ex=req.exDate, trace_id=trace_id
+        )
+        await emit(
+            "signals",
+            sources=len(signals.sources),
+            declared=bool(signals.declared),
+            declaredNote=signals.declared_note,
         )
 
         # A declaration invalidates any forward-looking calendar row. Fire the
         # silent correction NOW so it runs concurrently with the analysis LLM
         # call below; we await it just before returning. Best-effort — it never
         # raises, so it can't break the panel.
+        current["step"] = "reconcile"
         reconcile_task = (
             asyncio.create_task(
                 reconcile_declared(
@@ -117,6 +149,8 @@ async def analyze_dividend(
             if signals.declared
             else None
         )
+        if reconcile_task is not None:
+            await emit("reconcile", status="started")
 
         grounding_text = grounding.text if grounding else "(no quantitative facts supplied)"
         risk_hint = grounding.risk_hint if grounding else ""
@@ -147,13 +181,29 @@ async def analyze_dividend(
             f"=== SIGNALS (declared filings, fundamentals, news, forums) ===\n{signals.text}"
         )
 
+        # 4) The LLM read. chat_completion_agent_with_model NEVER raises — on a
+        # provider error it returns ("", label), so an empty `raw` here is the
+        # usual cause of a failed analysis (it trips the parse step below).
+        current["step"] = "llm"
+        await emit("llm_request", model="rotating")
         raw, model_label = await chat_completion_agent_with_model(
             messages=[
                 {"role": "system", "content": ANALYSIS_SYSTEM_PROMPT},
                 {"role": "user", "content": user_content},
             ]
         )
+        await emit(
+            "llm_response",
+            model=model_label,
+            chars=len(raw or ""),
+            empty=not (raw or "").strip(),
+        )
+
+        # 5) Parse the model's JSON. Empty/malformed output raises here → the
+        # trace's error event will name "parse" as the failing step.
+        current["step"] = "parse"
         data = json.loads(raw)
+        await emit("parse", keys=list(data.keys()) if isinstance(data, dict) else [])
 
         risk = str(data.get("riskLabel", "")).lower()
         sources = [
@@ -171,8 +221,10 @@ async def analyze_dividend(
 
         corrected = False
         if reconcile_task is not None:
+            current["step"] = "reconcile_result"
             outcome = await reconcile_task  # already best-effort; never raises
             corrected = bool(outcome and outcome.get("corrected"))
+            await emit("reconcile_result", corrected=corrected)
 
         response = AnalyzeResponse(
             ticker=ticker,
@@ -185,6 +237,7 @@ async def analyze_dividend(
             generatedAt=generated_at,
             corrected=corrected,
         )
+        await emit("done", model=model_label, risk=response.riskLabel, corrected=corrected)
     except Exception as exc:  # never surface an error box — degrade gracefully
         log_event(
             "analyze_dividend_failure",
@@ -192,6 +245,14 @@ async def analyze_dividend(
             ticker=ticker,
             severity="HIGH",
             model=model_label,
+            error=str(exc),
+        )
+        # Tell the trace which step died and why (the whole point of the stream).
+        await emit(
+            "error",
+            status="error",
+            failedStep=current["step"],
+            errorType=type(exc).__name__,
             error=str(exc),
         )
         response = AnalyzeResponse(

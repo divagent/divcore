@@ -10,9 +10,11 @@ calling the API needs to change.
 """
 
 import asyncio
+import json
 from datetime import date, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncConnection
 
 from app.core.ai_logging import log_event
@@ -160,6 +162,52 @@ async def analyze_dividend_endpoint(req: AnalyzeRequest):
     coverage, confidence). Never 500s — failures come back as a low-signal read."""
     return await analyze_dividend(
         req, trace_id=f"api:analyze:{req.ticker.strip().upper()}"
+    )
+
+
+@divRou.post("/div_agent/analyze_dividend/stream", tags=["Agent"])
+async def analyze_dividend_stream_endpoint(req: AnalyzeRequest):
+    """SSE variant of analyze_dividend: streams one JSON event per pipeline step
+    (`request` → `grounding` → `signals` → [`reconcile`] → `llm_request` →
+    `llm_response` → `parse` → `done`), so the UI can show exactly how far a
+    failing analysis got and which step died. The terminal `result` event carries
+    the same AnalyzeResponse the non-streaming endpoint returns. Never 500s — a
+    failure arrives as an `error` step naming `failedStep`.
+
+    Wire format: `text/event-stream`; each frame is `data: <json>\\n\\n`.
+    """
+    trace_id = f"api:analyze_stream:{req.ticker.strip().upper()}"
+
+    async def event_stream():
+        queue: asyncio.Queue = asyncio.Queue()
+
+        async def on_step(step: dict) -> None:
+            await queue.put(step)
+
+        async def run() -> None:
+            try:
+                resp = await analyze_dividend(req, on_step=on_step, trace_id=trace_id)
+                await queue.put({"step": "result", "status": "ok", "response": resp.model_dump()})
+            except Exception as exc:  # analyze_dividend shouldn't raise, but be safe
+                await queue.put({"step": "error", "status": "error", "error": str(exc)})
+            finally:
+                await queue.put(None)  # sentinel: close the stream
+
+        task = asyncio.create_task(run())
+        try:
+            while True:
+                item = await queue.get()
+                if item is None:
+                    break
+                yield f"data: {json.dumps(item, default=str)}\n\n"
+        finally:
+            if not task.done():
+                task.cancel()
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
 
 
