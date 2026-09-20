@@ -24,6 +24,7 @@ Design decisions carried from the plan:
 from __future__ import annotations
 
 import hashlib
+import json
 from datetime import date, timedelta
 from typing import Optional
 
@@ -57,6 +58,53 @@ def _event_times(ex_date: str) -> tuple[dict, dict]:
         {"dateTime": f"{ex_date}T{_EVENT_START_TIME}", "timeZone": tz},
         {"dateTime": f"{ex_date}T{_EVENT_END_TIME}", "timeZone": tz},
     )
+
+
+def _profile_props(profile: Optional[dict]) -> dict:
+    """Ticker-level Yahoo facts → stringly-typed event private props.
+
+    Persists the grounding facts the search step already fetched (companyName,
+    currency, ttmAmount, past-year dividends) onto the event so the analyze/click
+    path can reuse them instead of re-fetching Yahoo. Calendar private props are
+    strings, so the dividend list is JSON-encoded. Empty/None values are skipped.
+    """
+    profile = profile or {}
+    props: dict[str, str] = {}
+    if profile.get("companyName"):
+        props["companyName"] = str(profile["companyName"])
+    if profile.get("currency"):
+        props["currency"] = str(profile["currency"])
+    if profile.get("ttmAmount") is not None:
+        props["ttmAmount"] = f"{profile['ttmAmount']}"
+    divs = profile.get("pastYearDividends") or []
+    if divs:
+        props["pastYearDivs"] = json.dumps(
+            [{"exDate": d["exDate"], "amount": d["amount"]} for d in divs],
+            separators=(",", ":"),
+        )
+    return props
+
+
+def _parse_profile(priv: dict) -> dict:
+    """Inverse of _profile_props: read the stored facts back off an event."""
+    raw = priv.get("pastYearDivs")
+    past: list[dict] = []
+    if raw:
+        try:
+            loaded = json.loads(raw)
+            if isinstance(loaded, list):
+                past = [
+                    {"exDate": d.get("exDate"), "amount": d.get("amount")}
+                    for d in loaded
+                    if isinstance(d, dict)
+                ]
+        except (json.JSONDecodeError, TypeError):
+            past = []
+    return {
+        "companyName": priv.get("companyName") or None,
+        "currency": priv.get("currency") or None,
+        "pastYearDividends": past,
+    }
 
 
 class CalendarNotConfigured(RuntimeError):
@@ -203,14 +251,17 @@ class GoogleCalendarClient:
         forward_yield: Optional[float] = None,
         price: Optional[float] = None,
         price_as_of: Optional[str] = None,
+        profile: Optional[dict] = None,
         trace_id: str = "internal",
     ) -> dict:
         """Create or update one timed event, idempotent by (ticker, ex_date).
 
         Used for both firmness values (Declared / Prediction). The id keys on
         (ticker, ex_date) only, so re-running overrides the event on that date in
-        place — one event per date, as agreed. Returns the Google event resource
-        plus an "action" key ('created' | 'updated')."""
+        place — one event per date, as agreed. `profile` carries the ticker-level
+        Yahoo facts (companyName/currency/ttmAmount/pastYearDividends) so the
+        analyze path can reuse them without re-fetching. Returns the Google event
+        resource plus an "action" key ('created' | 'updated')."""
         start, end = _event_times(ex_date)
         private = {"app": "divcore", "divstatus": divstatus, "ticker": ticker}
         if amount is not None:
@@ -227,6 +278,7 @@ class GoogleCalendarClient:
             private["price"] = f"{price:.4f}"
         if price_as_of:
             private["priceAsOf"] = price_as_of
+        private.update(_profile_props(profile))
 
         body = {
             "id": self._event_id(ticker, ex_date),
@@ -428,6 +480,10 @@ class GoogleCalendarClient:
             "forwardYield": _num("forwardYield"),
             "price": _num("price"),
             "priceAsOf": priv.get("priceAsOf") or None,
+            # Ticker-level Yahoo facts stamped at publish, so click/analyze reuses
+            # them instead of re-fetching. ttmAmount is scalar; the rest via helper.
+            "ttmAmount": _num("ttmAmount"),
+            **_parse_profile(priv),
         }
 
     def publish_prediction(
@@ -520,6 +576,7 @@ def upsert_event(
     forward_yield: Optional[float] = None,
     price: Optional[float] = None,
     price_as_of: Optional[str] = None,
+    profile: Optional[dict] = None,
     trace_id: str = "internal",
 ) -> dict:
     """Upsert one labeled timed event using credentials from settings/.env."""
@@ -536,6 +593,7 @@ def upsert_event(
         forward_yield=forward_yield,
         price=price,
         price_as_of=price_as_of,
+        profile=profile,
         trace_id=trace_id,
     )
 

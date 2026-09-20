@@ -102,10 +102,26 @@ def _reconcile_sync(
     hi = (ex_d + timedelta(days=_WINDOW_DAYS)).isoformat()
 
     # Drop stale forward-looking rows for this ticker whose date != the declaration.
+    # While here, carry over the ticker-level Yahoo facts stamped on an existing
+    # row (prefer the one on the declaration's date) so the declared event keeps
+    # them and the click/analyze path doesn't have to re-fetch.
     removed = 0
+    profile: Optional[dict] = None
     for ev in list_events(time_min=lo, time_max=hi, trace_id=trace_id):
         if (ev.get("ticker") or "").strip().upper() != ticker:
             continue
+        has_facts = (
+            ev.get("ttmAmount") is not None
+            or ev.get("companyName")
+            or ev.get("pastYearDividends")
+        )
+        if has_facts and (profile is None or ev.get("exDate") == ex):
+            profile = {
+                "companyName": ev.get("companyName"),
+                "currency": ev.get("currency"),
+                "ttmAmount": ev.get("ttmAmount"),
+                "pastYearDividends": ev.get("pastYearDividends") or [],
+            }
         if ev.get("divstatus") == "Prediction" and ev.get("exDate") != ex:
             gid = ev.get("googleEventId")
             if gid and delete_event(event_id=gid, trace_id=trace_id):
@@ -147,6 +163,7 @@ def _reconcile_sync(
         divstatus="Declared",
         amount=amount,
         payment_date=pay_date,
+        profile=profile,
         trace_id=trace_id,
     )
 

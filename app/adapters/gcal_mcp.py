@@ -50,6 +50,7 @@ from app.adapters.gcal_api import (
     SCOPES,
     TOKEN_URI,
     _event_times,
+    _profile_props,
 )
 from app.config import get_settings_singleton
 from app.core.ai_logging import log_event
@@ -196,6 +197,7 @@ def _event_body(
     divstatus: str,
     amount: Optional[float],
     confidence: Optional[float],
+    profile: Optional[dict] = None,
 ) -> dict:
     """Same event body the REST upsert builds (id keyed on ticker+ex_date)."""
     start, end = _event_times(ex_date)
@@ -204,6 +206,7 @@ def _event_body(
         private["amount"] = f"{amount}"
     if confidence is not None:
         private["confidence"] = f"{confidence:.4f}"
+    private.update(_profile_props(profile))
     return {
         "id": _Rest._event_id(ticker, ex_date),
         "summary": summary,
@@ -291,10 +294,11 @@ async def upsert_event(
     divstatus: str,
     amount: Optional[float] = None,
     confidence: Optional[float] = None,
+    profile: Optional[dict] = None,
     trace_id: str = "internal",
 ) -> dict:
     """Create/update one timed event, idempotent by (ticker, ex_date)."""
-    body = _event_body(ticker, ex_date, summary, description, divstatus, amount, confidence)
+    body = _event_body(ticker, ex_date, summary, description, divstatus, amount, confidence, profile)
     async with _session() as (session, calendar_id):
         event = await _upsert_body(session, calendar_id, body)
     log_event(

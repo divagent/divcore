@@ -130,7 +130,12 @@ def _plan_events(
 
 
 async def _publish_all(
-    ticker: str, events: list[dict], *, forward: Optional[dict] = None, trace_id: str
+    ticker: str,
+    events: list[dict],
+    *,
+    forward: Optional[dict] = None,
+    profile: Optional[dict] = None,
+    trace_id: str,
 ) -> CalendarLayer:
     written: list[CalendarWrite] = []
     errors: list[str] = []
@@ -151,6 +156,7 @@ async def _publish_all(
                 forward_yield=forward.get("forwardYield"),
                 price=forward.get("price"),
                 price_as_of=forward.get("priceAsOf"),
+                profile=profile,
                 trace_id=trace_id,
             )
             written.append(CalendarWrite(
@@ -254,7 +260,20 @@ async def predict_and_publish(
             next_amount=req.facts.nextAmount,
         )
         forward = await _forward_from_facts(ticker, req, trace_id=trace_id)
-        calendar = await _publish_all(ticker, events, forward=forward, trace_id=trace_id)
+        # Ticker-level Yahoo facts, stamped on every event so the click/analyze
+        # path reuses them instead of re-fetching Yahoo (calendar is the store).
+        profile = {
+            "companyName": req.facts.companyName,
+            "currency": req.currency,
+            "ttmAmount": req.facts.ttmAmount,
+            "pastYearDividends": [
+                {"exDate": d.exDate, "amount": d.amount}
+                for d in req.facts.pastYearDividends
+            ],
+        }
+        calendar = await _publish_all(
+            ticker, events, forward=forward, profile=profile, trace_id=trace_id
+        )
 
         # If the board has already declared, the row we just wrote is a fact, not a
         # prediction. Reconcile AFTER publishing so the declared 'fact' overwrites
