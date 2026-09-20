@@ -1,7 +1,7 @@
 """Publish predicted dividends to the public Google Calendar.
 
-This is "Section 3" from `followup.md`: it turns a `DividendPrediction` into an
-all-day event on the calendar-owning account's public calendar, headlessly, using
+This is "Section 3" from `followup.md`: it turns a `DividendPrediction` into a
+timed event on the calendar-owning account's public calendar, headlessly, using
 a long-lived OAuth **refresh token** (no interactive consent at runtime).
 
 Transport note: we use the documented **REST** path (`calendar.events`) via
@@ -11,10 +11,10 @@ the safe default. Keep the public surface (`publish_prediction`) transport-agnos
 
 Config (all from `get_settings_singleton()`, sourced from `.env` — see followup.md):
     GOOGLE_OAUTH_CLIENT_ID, GOOGLE_OAUTH_CLIENT_SECRET,
-    GOOGLE_OAUTH_REFRESH_TOKEN, GOOGLE_CALENDAR_ID
+    GOOGLE_OAUTH_REFRESH_TOKEN, GOOGLE_CALENDAR_ID, CALENDAR_TZ
 
 Design decisions carried from the plan:
-  * All-day events (`start.date`/`end.date`) — reads best on a subscribed phone.
+  * Timed 08:00–09:00 events (`start.dateTime`/`end.dateTime`) in `CALENDAR_TZ`.
   * Idempotent: the event id is derived from (symbol, ex-date), so re-running the
     predictor UPDATES the same event instead of creating duplicates.
   * A LOW-confidence prediction is still published (never dropped), tagged in the
@@ -40,6 +40,23 @@ SCOPES = ["https://www.googleapis.com/auth/calendar.events"]
 TOKEN_URI = "https://oauth2.googleapis.com/token"
 
 _DIRECTION_ARROW = {"up": "↑", "down": "↓", "constant": "→"}
+
+# Events are published as a fixed one-hour slot on the ex-date, in CALENDAR_TZ.
+_EVENT_START_TIME = "08:00:00"
+_EVENT_END_TIME = "09:00:00"
+
+
+def _event_times(ex_date: str) -> tuple[dict, dict]:
+    """(start, end) event-time dicts for a 08:00–09:00 slot on ``ex_date``.
+
+    Timed events (`dateTime` + `timeZone`) rather than all-day (`date`): the
+    ex-date shows as a concrete 8–9am block in the configured `CALENDAR_TZ`.
+    """
+    tz = get_settings_singleton().CALENDAR_TZ
+    return (
+        {"dateTime": f"{ex_date}T{_EVENT_START_TIME}", "timeZone": tz},
+        {"dateTime": f"{ex_date}T{_EVENT_END_TIME}", "timeZone": tz},
+    )
 
 
 class CalendarNotConfigured(RuntimeError):
@@ -149,16 +166,14 @@ class GoogleCalendarClient:
             "Predicted by DivCore — not investment advice.",
         ]
 
-        start = date.fromisoformat(ex_date)
-        # All-day events use an exclusive end date: single-day event ends next day.
-        end = start + timedelta(days=1)
+        start, end = _event_times(ex_date)
 
         return {
             "id": cls._event_id(p.ticker, ex_date),
             "summary": summary,
             "description": "\n".join(description_lines),
-            "start": {"date": start.isoformat()},
-            "end": {"date": end.isoformat()},
+            "start": start,
+            "end": end,
             "transparency": "transparent",  # doesn't block the subscriber's free/busy
             "extendedProperties": {
                 "private": {
@@ -190,14 +205,13 @@ class GoogleCalendarClient:
         price_as_of: Optional[str] = None,
         trace_id: str = "internal",
     ) -> dict:
-        """Create or update one all-day event, idempotent by (ticker, ex_date).
+        """Create or update one timed event, idempotent by (ticker, ex_date).
 
         Used for both firmness values (Declared / Prediction). The id keys on
         (ticker, ex_date) only, so re-running overrides the event on that date in
         place — one event per date, as agreed. Returns the Google event resource
         plus an "action" key ('created' | 'updated')."""
-        start = date.fromisoformat(ex_date)
-        end = start + timedelta(days=1)
+        start, end = _event_times(ex_date)
         private = {"app": "divcore", "divstatus": divstatus, "ticker": ticker}
         if amount is not None:
             private["amount"] = f"{amount}"
@@ -218,8 +232,8 @@ class GoogleCalendarClient:
             "id": self._event_id(ticker, ex_date),
             "summary": summary,
             "description": description,
-            "start": {"date": start.isoformat()},
-            "end": {"date": end.isoformat()},
+            "start": start,
+            "end": end,
             "transparency": "transparent",
             "extendedProperties": {"private": private},
         }
@@ -335,10 +349,12 @@ class GoogleCalendarClient:
         parsed into flat dicts sorted by ex-date. Only events tagged app=divcore
         are returned. Raises CalendarNotConfigured if creds are missing."""
         service = self._get_service()
-        # All-day events are bounded by RFC3339 timestamps; pad the window to cover
-        # whole days regardless of timezone.
-        time_min_ts = f"{time_min}T00:00:00Z"
-        time_max_ts = f"{time_max}T23:59:59Z"
+        # Events are timed in CALENDAR_TZ, so an 08:00 local slot can fall on the
+        # previous/next UTC day. Pad the RFC3339 window by a day each side so the
+        # tz never clips an edge event; results are still filtered by app=divcore
+        # and callers key on `exDate`.
+        time_min_ts = f"{(date.fromisoformat(time_min) - timedelta(days=1)).isoformat()}T00:00:00Z"
+        time_max_ts = f"{(date.fromisoformat(time_max) + timedelta(days=1)).isoformat()}T23:59:59Z"
 
         items: list[dict] = []
         page_token = None
@@ -373,6 +389,9 @@ class GoogleCalendarClient:
             )
             raise
 
+        # The window was padded ±1 day for tz safety; clip back to the exact
+        # requested ex-date range so the external contract is unchanged.
+        items = [i for i in items if time_min <= i["exDate"][:10] <= time_max]
         items.sort(key=lambda i: i["exDate"])
         log_event("gcal_list_done", trace_id=trace_id, count=len(items))
         return items
@@ -417,13 +436,13 @@ class GoogleCalendarClient:
         """Create or update the calendar event for a prediction. Idempotent by (ticker, ex-date).
 
         Returns the Google event resource. Raises `CalendarNotConfigured` if creds are
-        missing, or `ValueError` if the prediction has no `predicted_ex_date` (an
-        all-day event needs a date).
+        missing, or `ValueError` if the prediction has no `predicted_ex_date` (the
+        event needs a date to anchor its time slot).
         """
         if not prediction.predicted_ex_date:
             raise ValueError(
                 f"Cannot publish {prediction.ticker}: predicted_ex_date is null; "
-                "an all-day calendar event requires a date."
+                "a calendar event requires a date."
             )
 
         service = self._get_service()
@@ -503,7 +522,7 @@ def upsert_event(
     price_as_of: Optional[str] = None,
     trace_id: str = "internal",
 ) -> dict:
-    """Upsert one labeled all-day event using credentials from settings/.env."""
+    """Upsert one labeled timed event using credentials from settings/.env."""
     return GoogleCalendarClient().upsert_event(
         ticker=ticker,
         ex_date=ex_date,

@@ -42,6 +42,8 @@ class _Settings(BaseSettings):
     GOOGLE_OAUTH_CLIENT_SECRET: Optional[str] = None
     GOOGLE_OAUTH_REFRESH_TOKEN: Optional[str] = None
     GOOGLE_CALENDAR_ID: Optional[str] = None
+    # IANA timezone for published events. Events are timed 08:00–09:00 in this tz.
+    CALENDAR_TZ: str = "America/Toronto"
 
     # Database
     DIV_AIVEN_ADMIN: str = "postgresql+asyncpg://username:pwd@local/icedb"

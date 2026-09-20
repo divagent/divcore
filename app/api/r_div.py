@@ -167,7 +167,7 @@ async def analyze_dividend_endpoint(req: AnalyzeRequest):
 async def predict_dividend_endpoint(req: PredictRequest):
     """Analyze a dividend from the frontend's authoritative facts and return all
     three labeled layers (facts / pattern / research), optionally publishing one
-    idempotent all-day event per ex-date to the public Google Calendar.
+    idempotent timed event per ex-date to the public Google Calendar.
 
     The facts in the body are authoritative — the backend echoes them verbatim and
     never re-fetches them. See src/data/ai-query.contract.md in the frontend repo.

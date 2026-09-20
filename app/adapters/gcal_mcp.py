@@ -32,6 +32,7 @@ import asyncio
 import json
 import os
 from contextlib import asynccontextmanager
+from datetime import date, timedelta
 from typing import Any, AsyncIterator, Optional
 
 import httpx2
@@ -48,6 +49,7 @@ from app.adapters.gcal_api import (
     GoogleCalendarClient as _Rest,
     SCOPES,
     TOKEN_URI,
+    _event_times,
 )
 from app.config import get_settings_singleton
 from app.core.ai_logging import log_event
@@ -196,10 +198,7 @@ def _event_body(
     confidence: Optional[float],
 ) -> dict:
     """Same event body the REST upsert builds (id keyed on ticker+ex_date)."""
-    from datetime import date, timedelta
-
-    start = date.fromisoformat(ex_date)
-    end = start + timedelta(days=1)
+    start, end = _event_times(ex_date)
     private = {"app": "divcore", "divstatus": divstatus, "ticker": ticker}
     if amount is not None:
         private["amount"] = f"{amount}"
@@ -209,8 +208,8 @@ def _event_body(
         "id": _Rest._event_id(ticker, ex_date),
         "summary": summary,
         "description": description,
-        "start": {"date": start.isoformat()},
-        "end": {"date": end.isoformat()},
+        "start": start,
+        "end": end,
         "transparency": "transparent",
         "extendedProperties": {"private": private},
     }
@@ -256,14 +255,19 @@ async def list_events(
     *, time_min: str, time_max: str, trace_id: str = "internal"
 ) -> list[dict]:
     """List this app's events in [time_min, time_max]. Same output as gcal_api."""
+    # Events are timed in CALENDAR_TZ, so an 08:00 local slot can fall on the
+    # previous/next UTC day; pad the query window a day each side and clip back
+    # to the requested ex-date range below.
+    time_min_ts = f"{(date.fromisoformat(time_min) - timedelta(days=1)).isoformat()}T00:00:00Z"
+    time_max_ts = f"{(date.fromisoformat(time_max) + timedelta(days=1)).isoformat()}T23:59:59Z"
     async with _session() as (session, calendar_id):
         result = await _call(
             session,
             TOOL_LIST_EVENTS,
             {
                 "calendarId": calendar_id,
-                "timeMin": f"{time_min}T00:00:00Z",
-                "timeMax": f"{time_max}T23:59:59Z",
+                "timeMin": time_min_ts,
+                "timeMax": time_max_ts,
                 "singleEvents": True,
                 "orderBy": "startTime",
                 "privateExtendedProperty": "app=divcore",
@@ -272,6 +276,7 @@ async def list_events(
         )
     # Filter client-side too, in case the server ignores privateExtendedProperty.
     items = [_Rest._parse_event(ev) for ev in _events_from_result(result) if _is_divcore(ev)]
+    items = [i for i in items if time_min <= i["exDate"][:10] <= time_max]
     items.sort(key=lambda i: i["exDate"])
     log_event("gcal_mcp_list_done", trace_id=trace_id, count=len(items))
     return items
@@ -288,7 +293,7 @@ async def upsert_event(
     confidence: Optional[float] = None,
     trace_id: str = "internal",
 ) -> dict:
-    """Create/update one all-day event, idempotent by (ticker, ex_date)."""
+    """Create/update one timed event, idempotent by (ticker, ex_date)."""
     body = _event_body(ticker, ex_date, summary, description, divstatus, amount, confidence)
     async with _session() as (session, calendar_id):
         event = await _upsert_body(session, calendar_id, body)
@@ -329,11 +334,11 @@ async def delete_event(*, event_id: str, trace_id: str = "internal") -> bool:
 
 
 async def publish_prediction(prediction, *, trace_id: str = "internal") -> dict:
-    """Publish one prediction as an all-day event (idempotent by ticker+ex_date)."""
+    """Publish one prediction as a timed event (idempotent by ticker+ex_date)."""
     if not prediction.predicted_ex_date:
         raise ValueError(
             f"Cannot publish {prediction.ticker}: predicted_ex_date is null; "
-            "an all-day calendar event requires a date."
+            "a calendar event requires a date."
         )
     body = _Rest._build_event_body(prediction)  # identical body to the REST path
     async with _session() as (session, calendar_id):

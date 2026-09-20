@@ -6,7 +6,7 @@ Contract: `src/data/ai-query.contract.md` (frontend repo). One call, three layer
     layer 1  facts     — echoed verbatim from the request (NEVER re-derived here)
     layer 2  pattern    — age_pattern.build_facts_and_pattern (heuristics, no LLM)
     layer 3  research    — age_predictor.research_prediction (web + LLM, sourced)
-    calendar             — one all-day event per (symbol, ex-date), upserted
+    calendar             — one timed event (08:00–09:00, CALENDAR_TZ) per (symbol, ex-date), upserted
 
 `publishToCalendar=False` computes all three layers and writes nothing (preview).
 Calendar writes are best-effort: a failure is captured in `calendar.errors` and
