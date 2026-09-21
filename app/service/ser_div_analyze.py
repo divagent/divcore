@@ -22,6 +22,7 @@ import json
 from datetime import date, datetime, timezone
 
 from app.agent.age_grounding import build_grounding
+from app.agent.age_rumor import gather_rumors
 from app.agent.age_signals import gather_dividend_signals
 from app.core.ai_logging import log_event
 from app.adapters.gemini_chat import chat_completion_agent_with_model
@@ -67,6 +68,70 @@ def _status_note(divstatus: str) -> str:
     }.get(divstatus, "")
 
 
+async def _rumor_read(
+    req: AnalyzeRequest, *, emit, current: dict, generated_at: str, trace_id: str
+) -> AnalyzeResponse:
+    """Declared-row path: fast breaking-news/rumor read, no research, no reconcile."""
+    ticker = (req.ticker or "").strip().upper()
+    company = req.facts.companyName if req.facts else None
+    current["step"] = "rumor"
+
+    async def _on_attempt_error(label: str, exc: Exception) -> None:
+        await emit("llm_error", status="warn", model=label, error=str(exc))
+
+    try:
+        rumors = await gather_rumors(
+            ticker,
+            company_name=company,
+            declared_ex=req.exDate,
+            trace_id=trace_id,
+            on_attempt_error=_on_attempt_error,
+        )
+    except Exception as exc:  # gather_rumors is fail-soft, but surface if it ever raises
+        log_event(
+            "rumor_read_failure",
+            trace_id=trace_id,
+            ticker=ticker,
+            severity="MEDIUM",
+            error=str(exc),
+        )
+        await emit(
+            "error",
+            status="error",
+            failedStep=current["step"],
+            errorType=type(exc).__name__,
+            error=str(exc),
+        )
+        raise
+
+    await emit("rumor", sources=len(rumors.sources), breaking=rumors.breaking, model=rumors.model)
+    sources = [
+        AnalysisSource(title=s.get("title", ""), url=s["url"])
+        for s in rumors.sources
+        if s.get("url")
+    ]
+    response = AnalyzeResponse(
+        ticker=ticker,
+        exDate=req.exDate,
+        headline=rumors.headline,
+        reasoning=rumors.digest,
+        riskLabel="unknown",
+        sources=sources,
+        model=rumors.model,
+        generatedAt=generated_at,
+        corrected=False,  # declared rows never touch the calendar
+    )
+    await emit("done", model=rumors.model, risk="unknown", corrected=False)
+    log_event(
+        "rumor_read_done",
+        trace_id=trace_id,
+        ticker=ticker,
+        model=rumors.model,
+        breaking=rumors.breaking,
+    )
+    return response
+
+
 async def analyze_dividend(
     req: AnalyzeRequest, *, on_step=None, trace_id: str = "internal"
 ) -> AnalyzeResponse:
@@ -92,6 +157,15 @@ async def analyze_dividend(
 
     # 1) Echo the exact JSON the browser sent — the first thing the trace shows.
     await emit("request", request=req.model_dump())
+
+    # A DECLARED row's amount and dates are already fact — research and calendar
+    # reconcile add nothing. Route it to the fast breaking-news/rumor agent, which
+    # only surfaces what has BROKEN since (cut/suspension/special/M&A/chatter) and
+    # never touches the calendar. Only PREDICTION rows take the research path below.
+    if req.divstatus == "Declared":
+        return await _rumor_read(
+            req, emit=emit, current=current, generated_at=generated_at, trace_id=trace_id
+        )
 
     amount_text = f"{req.amount:.4f}".rstrip("0").rstrip(".") if req.amount is not None else "TBD"
     conf_text = f"{round(req.confidence * 100)}%" if req.confidence is not None else "n/a"
