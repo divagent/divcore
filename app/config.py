@@ -36,7 +36,7 @@ class _Settings(BaseSettings):
     # NVIDIA NIM — OpenAI-compatible endpoint at integrate.api.nvidia.com. No key =>
     # NVIDIA models are skipped.
     NVIDIA_API_KEY: Optional[str] = None
-    NVIDIA_MODEL_ID: str = "nvidia/llama-3.1-nemotron-70b-instruct"
+    NVIDIA_MODEL_ID: str = "nvidia/nemotron-3.5-lightning-30b-a3b"
     # The AI model rotation ring (hard round-robin). Every LLM call uses the NEXT
     # model and advances one shared global cursor, so consecutive calls never hit
     # the same model. Extend this list (to any length) to add models. Each entry is
@@ -46,10 +46,7 @@ class _Settings(BaseSettings):
         "groq:openai/gpt-oss-120b",
         "mistral:mistral-medium-latest",
         "cloudflare:@cf/meta/llama-3.3-70b-instruct-fp8-fast",
-        # NVIDIA NIM is wired (see _call_nvidia) but currently every model 404s
-        # "Function not found for account" — the account has no active hosted-inference
-        # credits. Re-enable this line once the key can run inference:
-        # "nvidia:nvidia/llama-3.1-nemotron-70b-instruct",
+        "nvidia:nvidia/nemotron-3.5-lightning-30b-a3b",
     ]
 
     SERPERDEV_API_KEY: Optional[str] = None
