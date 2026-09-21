@@ -89,6 +89,21 @@ def _pattern_text(pattern: PatternLayer) -> str:
     )
 
 
+def _pattern_confidence(pattern: PatternLayer) -> float:
+    """Confidence to fall back on when the research LLM is unavailable, derived from
+    the PATTERN alone. A regular payer's next payment is genuinely predictable from
+    cadence, so it deserves a real (if modest) score — not the misleading 0.0 that
+    reads as a firm '0% prediction'. Capped well below the research/declared range so
+    a pattern-only projection never masquerades as a confident call."""
+    if not pattern.projected:
+        return 0.0  # nothing to project on — no basis for any confidence
+    if not pattern.regular:
+        return 0.2  # irregular cadence — weak, but better than a bare 0%
+    # Regular cadence: the timing is dependable; a steady/growing amount is more
+    # predictable than a declining or unknown one.
+    return 0.55 if pattern.amountTrend in ("stable", "increasing") else 0.5
+
+
 async def research_prediction(
     ticker: str,
     facts: FactsLayer,
@@ -209,14 +224,15 @@ async def research_prediction(
             model=model_label,
             error=str(exc),
         )
+        fallback_conf = _pattern_confidence(pattern)
         research = ResearchLayer(
             willMaintainPattern=pattern.regular,
-            confidence=0.0,
+            confidence=fallback_conf,
             predictedNext=default_next,
             reasoning=(
-                f"Could not complete web research (model: {model_label}); falling back "
-                "to the detected pattern as a LOW-confidence prediction rather than "
-                "dropping it."
+                f"Could not complete web research (model: {model_label}); confidence "
+                f"is scored from the detected pattern alone ({round(fallback_conf * 100)}% — "
+                "cadence regularity and amount trend), not from research."
             ),
             sources=[],
             model=model_label,
