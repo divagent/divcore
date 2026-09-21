@@ -12,8 +12,9 @@ generic narrative. The agent works in two layers:
      company confirms it. That early read is the whole point of the app.
 
 Everything is grounded in supplied quantitative facts + retrieved signals; the
-model is told never to invent. Never raises — failures degrade to a low-signal
-read so the panel always shows something.
+model is told never to invent. On failure it emits an `error` step naming the
+failing step and cause, then RAISES — it does not fabricate a low-signal read, so
+a real error reaches the caller with its real cause instead of hiding as an answer.
 """
 
 import asyncio
@@ -238,7 +239,7 @@ async def analyze_dividend(
             corrected=corrected,
         )
         await emit("done", model=model_label, risk=response.riskLabel, corrected=corrected)
-    except Exception as exc:  # never surface an error box — degrade gracefully
+    except Exception as exc:
         log_event(
             "analyze_dividend_failure",
             trace_id=trace_id,
@@ -247,7 +248,10 @@ async def analyze_dividend(
             model=model_label,
             error=str(exc),
         )
-        # Tell the trace which step died and why (the whole point of the stream).
+        # Tell the trace which step died and why (the whole point of the stream),
+        # then RE-RAISE. We do not fabricate a "could not complete" read: a real
+        # failure must reach the caller with its real cause, not be eaten and
+        # dressed up as a low-signal answer.
         await emit(
             "error",
             status="error",
@@ -255,19 +259,7 @@ async def analyze_dividend(
             errorType=type(exc).__name__,
             error=str(exc),
         )
-        response = AnalyzeResponse(
-            ticker=ticker,
-            exDate=req.exDate,
-            headline=f"Could not complete live analysis for {ticker}.",
-            reasoning=(
-                f"The agent (model: {model_label}) could not gather signals or parse "
-                "a structured read for this event just now. Try again in a moment."
-            ),
-            riskLabel="unknown",
-            sources=[],
-            model=model_label,
-            generatedAt=generated_at,
-        )
+        raise
 
     log_event(
         "analyze_dividend_done",

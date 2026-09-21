@@ -159,7 +159,9 @@ async def update_trade(
 async def analyze_dividend_endpoint(req: AnalyzeRequest):
     """Gemini agent read on a single clicked calendar event: pulls live news and
     returns a headline, reliability label, and reasoning (payment history, cadence,
-    coverage, confidence). Never 500s — failures come back as a low-signal read."""
+    coverage, confidence). A real failure propagates (500 with its cause) rather
+    than being masked as a low-signal read; use the /stream variant to watch which
+    step died live."""
     return await analyze_dividend(
         req, trace_id=f"api:analyze:{req.ticker.strip().upper()}"
     )

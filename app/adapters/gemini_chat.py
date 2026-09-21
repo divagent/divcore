@@ -50,7 +50,19 @@ async def _call_gemini(model, system_instruction, contents, response_mime_type) 
             temperature=0.2,
         ),
     )
-    return resp.text or ""
+    text = resp.text
+    if text:
+        return text
+    # No usable text. Do NOT return "" — that just trips the caller on an empty
+    # parse with no clue why. Surface Gemini's actual reason (safety block,
+    # MAX_TOKENS, recitation, ...) so the failure names itself.
+    feedback = getattr(resp, "prompt_feedback", None)
+    block = getattr(feedback, "block_reason", None)
+    candidates = getattr(resp, "candidates", None) or []
+    finish = getattr(candidates[0], "finish_reason", None) if candidates else None
+    raise RuntimeError(
+        f"Gemini {model} returned no text (finish_reason={finish}, block_reason={block})"
+    )
 
 
 async def _call_groq(model, messages, response_mime_type) -> str:
@@ -68,8 +80,12 @@ async def _call_groq(model, messages, response_mime_type) -> str:
         kwargs["response_format"] = {"type": "json_object"}
     resp = await client.chat.completions.create(**kwargs)
     if not resp.choices:
-        return ""
-    return resp.choices[0].message.content or ""
+        raise RuntimeError(f"Groq {model} returned no choices")
+    content = resp.choices[0].message.content
+    if not content:
+        finish = getattr(resp.choices[0], "finish_reason", None)
+        raise RuntimeError(f"Groq {model} returned empty content (finish_reason={finish})")
+    return content
 
 
 async def _invoke(provider, model_id, system_instruction, contents, messages, response_mime_type) -> str:
@@ -93,8 +109,9 @@ async def chat_completion_agent_with_model(
 
     Hard rotation: uses `model` if the caller already drew one (e.g. to announce it
     first), else draws the next model and advances the global cursor once. There is
-    no retry and no in-call fallback -- if the model errors we log and return
-    ("", label) so callers degrade, and the *next* call uses the next model.
+    no retry and no in-call fallback. If the model errors or returns no text we log
+    the full cause and RE-RAISE -- we never hand back "" for a caller to trip on. The
+    cursor has already advanced, so the *next* call naturally uses the next model.
     """
     if messages is None and isinstance(system_prompt, list):
         messages = system_prompt
@@ -113,9 +130,11 @@ async def chat_completion_agent_with_model(
     label = f"{provider}:{model_id}"
     try:
         text = await _invoke(provider, model_id, system_instruction, contents, messages, response_mime_type)
-    except Exception as exc:  # noqa: BLE001 - one shot; the next call rotates onward
-        logger.warning("AI %s failed: %s", label, exc)
-        return "", label
+    except Exception:
+        # Log the full cause, then let it propagate -- swallowing it here is what
+        # turned a real Gemini error into a downstream "empty parse" mystery.
+        logger.exception("AI %s failed", label)
+        raise
     return text, label
 
 
