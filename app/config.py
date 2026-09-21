@@ -21,13 +21,35 @@ class _Settings(BaseSettings):
     # Groq — free, fast, OpenAI-compatible. No key => Groq models are skipped.
     GROQ_API_KEY: Optional[str] = None
     GROQ_MODEL_ID: str = "llama-3.3-70b-versatile"
+
+    # Mistral — official SDK. No key => Mistral models are skipped.
+    MISTRAL_API_KEY: Optional[str] = None
+    MISTRAL_MODEL_ID: str = "mistral-large-latest"
+
+    # Cloudflare Workers AI — OpenAI-compatible chat endpoint. Needs BOTH the API
+    # token and the account id (the account id is part of the URL); missing either
+    # => Cloudflare models are skipped.
+    CLOUDFLARE_API_TOKEN: Optional[str] = None
+    CLOUDFLARE_ACCOUNT_ID: Optional[str] = None
+    CLOUDFLARE_MODEL_ID: str = "@cf/meta/llama-3.3-70b-instruct-fp8-fast"
+
+    # NVIDIA NIM — OpenAI-compatible endpoint at integrate.api.nvidia.com. No key =>
+    # NVIDIA models are skipped.
+    NVIDIA_API_KEY: Optional[str] = None
+    NVIDIA_MODEL_ID: str = "nvidia/llama-3.1-nemotron-70b-instruct"
     # The AI model rotation ring (hard round-robin). Every LLM call uses the NEXT
     # model and advances one shared global cursor, so consecutive calls never hit
     # the same model. Extend this list (to any length) to add models. Each entry is
     # "provider:model_id"; supported providers: "gemini", "groq". A model whose
     # provider has no API key is skipped.
     AI_ROTATION_MODELS: List[str] = [
-        "gemini:gemini-3.6-flash",
+        "groq:llama-3.3-70b-versatile",
+        "mistral:mistral-large-latest",
+        "cloudflare:@cf/meta/llama-3.3-70b-instruct-fp8-fast",
+        # NVIDIA NIM is wired (see _call_nvidia) but currently every model 404s
+        # "Function not found for account" — the account has no active hosted-inference
+        # credits. Re-enable this line once the key can run inference:
+        # "nvidia:nvidia/llama-3.1-nemotron-70b-instruct",
     ]
 
     SERPERDEV_API_KEY: Optional[str] = None

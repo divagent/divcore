@@ -29,6 +29,17 @@ def get_groq_client():
     return AsyncGroq(api_key=key)
 
 
+@lru_cache(maxsize=1)
+def get_mistral_client():
+    """Lazily build the Mistral client. Returns None when no key is configured."""
+    key = os.getenv("MISTRAL_API_KEY") or get_settings_singleton().MISTRAL_API_KEY
+    if not key:
+        return None
+    from mistralai import Mistral  # imported lazily so the app runs without mistralai installed
+
+    return Mistral(api_key=key)
+
+
 # ===========================================================================
 # Model rotation (hard round-robin)
 # ===========================================================================
@@ -40,7 +51,29 @@ def get_groq_client():
 # To grow the rotation edit settings.AI_ROTATION_MODELS -- "provider:model_id"
 # entries; nothing else changes. To support a new provider, add its key mapping
 # below and a branch in gemini_chat._invoke().
-_PROVIDER_KEYS = {"gemini": "GEMINI_API_KEY", "groq": "GROQ_API_KEY"}
+_PROVIDER_KEYS = {
+    "gemini": "GEMINI_API_KEY",
+    "groq": "GROQ_API_KEY",
+    "mistral": "MISTRAL_API_KEY",
+    "cloudflare": "CLOUDFLARE_API_TOKEN",
+    "nvidia": "NVIDIA_API_KEY",
+}
+
+
+def get_nvidia_key():
+    """NVIDIA NIM API key from env or settings, or None."""
+    return os.getenv("NVIDIA_API_KEY") or get_settings_singleton().NVIDIA_API_KEY
+
+
+def get_cloudflare_creds() -> tuple:
+    """(api_token, account_id) for Cloudflare Workers AI, or (None, None) if either
+    is missing. Both are required — the account id is part of the request URL."""
+    settings = get_settings_singleton()
+    token = os.getenv("CLOUDFLARE_API_TOKEN") or settings.CLOUDFLARE_API_TOKEN
+    account = os.getenv("CLOUDFLARE_ACCOUNT_ID") or settings.CLOUDFLARE_ACCOUNT_ID
+    if token and account:
+        return token, account
+    return None, None
 
 _cursor = itertools.count()
 
@@ -70,6 +103,13 @@ def _model_configured(provider: str) -> bool:
     if provider == "gemini" and os.getenv("GEMINI_API_KEY"):
         return True
     if provider == "groq" and os.getenv("GROQ_API_KEY"):
+        return True
+    if provider == "mistral" and os.getenv("MISTRAL_API_KEY"):
+        return True
+    if provider == "cloudflare":
+        # Needs BOTH token and account id, from env or settings.
+        return all(get_cloudflare_creds())
+    if provider == "nvidia" and os.getenv("NVIDIA_API_KEY"):
         return True
     return bool(attr and getattr(settings, attr, None))
 

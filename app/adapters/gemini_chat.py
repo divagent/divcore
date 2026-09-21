@@ -1,10 +1,14 @@
 import logging
 
+import httpx
 from google.genai import types
 
 from app.adapters.gemini import (
+    get_cloudflare_creds,
     get_gemini_client,
     get_groq_client,
+    get_mistral_client,
+    get_nvidia_key,
     next_ai_model,
 )
 
@@ -88,12 +92,84 @@ async def _call_groq(model, messages, response_mime_type) -> str:
     return content
 
 
+async def _call_mistral(model, messages, response_mime_type) -> str:
+    client = get_mistral_client()
+    if client is None:
+        raise RuntimeError("MISTRAL_API_KEY is not configured")
+    kwargs = {
+        # messages are already role/content dicts (system/user/assistant); Mistral's
+        # chat API takes the same shape, so they pass through unchanged.
+        "model": model,
+        "messages": [{"role": m.get("role", "user"), "content": str(m.get("content", ""))} for m in messages],
+        "temperature": 0.2,
+    }
+    if response_mime_type == "application/json":
+        kwargs["response_format"] = {"type": "json_object"}
+    resp = await client.chat.complete_async(**kwargs)
+    if not resp.choices:
+        raise RuntimeError(f"Mistral {model} returned no choices")
+    content = resp.choices[0].message.content
+    if not content:
+        finish = getattr(resp.choices[0], "finish_reason", None)
+        raise RuntimeError(f"Mistral {model} returned empty content (finish_reason={finish})")
+    return content
+
+
+async def _openai_compatible_chat(url, token, model, messages, response_mime_type, *, who) -> str:
+    """POST to any OpenAI-compatible /chat/completions endpoint (Cloudflare, NVIDIA)
+    and return the message content. Raises with the real HTTP body / finish_reason
+    on any failure rather than returning ""."""
+    payload: dict = {
+        "model": model,
+        "messages": [{"role": m.get("role", "user"), "content": str(m.get("content", ""))} for m in messages],
+        "temperature": 0.2,
+    }
+    if response_mime_type == "application/json":
+        payload["response_format"] = {"type": "json_object"}
+    async with httpx.AsyncClient(timeout=httpx.Timeout(60.0)) as client:
+        r = await client.post(url, headers={"Authorization": f"Bearer {token}"}, json=payload)
+    if r.status_code != 200:
+        raise RuntimeError(f"{who} {model} HTTP {r.status_code}: {r.text[:500]}")
+    choices = (r.json() or {}).get("choices") or []
+    if not choices:
+        raise RuntimeError(f"{who} {model} returned no choices: {r.text[:500]}")
+    content = (choices[0].get("message") or {}).get("content")
+    if not content:
+        finish = choices[0].get("finish_reason")
+        raise RuntimeError(f"{who} {model} returned empty content (finish_reason={finish})")
+    return content
+
+
+async def _call_cloudflare(model, messages, response_mime_type) -> str:
+    token, account = get_cloudflare_creds()
+    if not (token and account):
+        raise RuntimeError("CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID must both be set")
+    # Cloudflare Workers AI exposes an OpenAI-compatible chat endpoint; the account id
+    # is part of the URL, the model id (e.g. "@cf/meta/...") goes in the body.
+    url = f"https://api.cloudflare.com/client/v4/accounts/{account}/ai/v1/chat/completions"
+    return await _openai_compatible_chat(url, token, model, messages, response_mime_type, who="Cloudflare")
+
+
+async def _call_nvidia(model, messages, response_mime_type) -> str:
+    token = get_nvidia_key()
+    if not token:
+        raise RuntimeError("NVIDIA_API_KEY is not configured")
+    url = "https://integrate.api.nvidia.com/v1/chat/completions"
+    return await _openai_compatible_chat(url, token, model, messages, response_mime_type, who="NVIDIA")
+
+
 async def _invoke(provider, model_id, system_instruction, contents, messages, response_mime_type) -> str:
     """Call one model via its provider's client and return raw text output."""
     if provider == "gemini":
         return await _call_gemini(model_id, system_instruction, contents, response_mime_type)
     if provider == "groq":
         return await _call_groq(model_id, messages, response_mime_type)
+    if provider == "mistral":
+        return await _call_mistral(model_id, messages, response_mime_type)
+    if provider == "cloudflare":
+        return await _call_cloudflare(model_id, messages, response_mime_type)
+    if provider == "nvidia":
+        return await _call_nvidia(model_id, messages, response_mime_type)
     raise RuntimeError(f"Unknown AI provider: {provider}")
 
 
