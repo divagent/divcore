@@ -4,6 +4,7 @@ import httpx
 from google.genai import types
 
 from app.adapters.gemini import (
+    _usable_models,
     get_cloudflare_creds,
     get_gemini_client,
     get_groq_client,
@@ -178,16 +179,22 @@ async def chat_completion_agent_with_model(
     user_prompt: str | None = None,
     messages: list | None = None,
     model: tuple[str, str] | None = None,
+    *,
+    on_attempt_error=None,
 ) -> tuple[str, str]:
     """Like chat_completion_agent, but also returns the "provider:model_id" label of
     the model that actually ran, so callers can tell the user exactly which model
     produced the output.
 
-    Hard rotation: uses `model` if the caller already drew one (e.g. to announce it
-    first), else draws the next model and advances the global cursor once. There is
-    no retry and no in-call fallback. If the model errors or returns no text we log
-    the full cause and RE-RAISE -- we never hand back "" for a caller to trip on. The
-    cursor has already advanced, so the *next* call naturally uses the next model.
+    Rotation with in-ring fallback: if the caller pins `model`, it is tried once.
+    Otherwise we try each usable model in the ring ONCE (drawing the next via the
+    shared cursor). On a failure -- a provider error, a 404/no-access model, or an
+    empty response -- we log the cause, report it via `on_attempt_error(label, exc)`
+    if given (so a trace can SHOW it), then rotate to the next model. The first
+    success returns. If every model fails we raise the LAST error -- we never swallow
+    it into "".
+
+    `on_attempt_error` is an optional async callback invoked once per failed attempt.
     """
     if messages is None and isinstance(system_prompt, list):
         messages = system_prompt
@@ -202,16 +209,28 @@ async def chat_completion_agent_with_model(
     system_instruction, contents = _gemini_contents(messages)
     response_mime_type = "application/json" if _wants_json(str(system_prompt or ""), messages) else None
 
-    provider, model_id = model or next_ai_model()
-    label = f"{provider}:{model_id}"
-    try:
-        text = await _invoke(provider, model_id, system_instruction, contents, messages, response_mime_type)
-    except Exception:
-        # Log the full cause, then let it propagate -- swallowing it here is what
-        # turned a real Gemini error into a downstream "empty parse" mystery.
-        logger.exception("AI %s failed", label)
-        raise
-    return text, label
+    # Pinned model => one shot; otherwise try each usable model in the ring once.
+    attempts = 1 if model else max(1, len(_usable_models()))
+    last_exc: Exception | None = None
+    for _ in range(attempts):
+        provider, model_id = model or next_ai_model()
+        label = f"{provider}:{model_id}"
+        try:
+            text = await _invoke(provider, model_id, system_instruction, contents, messages, response_mime_type)
+            return text, label
+        except Exception as exc:
+            # Surface the cause (log + optional callback), then rotate onward. We do
+            # not eat it: if this was the last model, we re-raise below.
+            logger.warning("AI %s failed, rotating to next model: %s", label, exc)
+            last_exc = exc
+            if on_attempt_error is not None:
+                try:
+                    await on_attempt_error(label, exc)
+                except Exception:  # noqa: BLE001 - a broken reporter must not mask the real error
+                    pass
+
+    assert last_exc is not None  # attempts >= 1, so a failure path always set this
+    raise last_exc
 
 
 async def chat_completion_agent(

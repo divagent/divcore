@@ -187,11 +187,17 @@ async def analyze_dividend(
         # usual cause of a failed analysis (it trips the parse step below).
         current["step"] = "llm"
         await emit("llm_request", model="rotating")
+
+        async def _on_attempt_error(label: str, exc: Exception) -> None:
+            # Show the failing model + its real error, then the helper rotates on.
+            await emit("llm_error", status="warn", model=label, error=str(exc))
+
         raw, model_label = await chat_completion_agent_with_model(
             messages=[
                 {"role": "system", "content": ANALYSIS_SYSTEM_PROMPT},
                 {"role": "user", "content": user_content},
-            ]
+            ],
+            on_attempt_error=_on_attempt_error,
         )
         await emit(
             "llm_response",

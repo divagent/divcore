@@ -20,11 +20,11 @@ class _Settings(BaseSettings):
 
     # Groq — free, fast, OpenAI-compatible. No key => Groq models are skipped.
     GROQ_API_KEY: Optional[str] = None
-    GROQ_MODEL_ID: str = "llama-3.3-70b-versatile"
+    GROQ_MODEL_ID: str = "openai/gpt-oss-120b"
 
     # Mistral — official SDK. No key => Mistral models are skipped.
     MISTRAL_API_KEY: Optional[str] = None
-    MISTRAL_MODEL_ID: str = "mistral-large-latest"
+    MISTRAL_MODEL_ID: str = "mistral-medium-latest"
 
     # Cloudflare Workers AI — OpenAI-compatible chat endpoint. Needs BOTH the API
     # token and the account id (the account id is part of the URL); missing either
@@ -43,8 +43,8 @@ class _Settings(BaseSettings):
     # "provider:model_id"; supported providers: "gemini", "groq". A model whose
     # provider has no API key is skipped.
     AI_ROTATION_MODELS: List[str] = [
-        "groq:llama-3.3-70b-versatile",
-        "mistral:mistral-large-latest",
+        "groq:openai/gpt-oss-120b",
+        "mistral:mistral-medium-latest",
         "cloudflare:@cf/meta/llama-3.3-70b-instruct-fp8-fast",
         # NVIDIA NIM is wired (see _call_nvidia) but currently every model 404s
         # "Function not found for account" — the account has no active hosted-inference
